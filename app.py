@@ -20,7 +20,7 @@ def ler_planilha(aba_nome):
         st.error(f"Erro de conexão ao ler aba '{aba_nome}': {e}")
         return pd.DataFrame()
 
-# NOVA FUNÇÃO: Salvar ou Atualizar as configurações do usuário na planilha
+# Função para Salvar ou Atualizar as configurações
 def salvar_configuracao(email, dados_dict):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -37,20 +37,18 @@ def salvar_configuracao(email, dados_dict):
             dados_dict['EX_Stocks'], dados_dict['EX_REITs'], dados_dict['EX_ETFs']
         ]
         
-        # Se o usuário já tiver uma configuração salva, atualiza a linha correspondente
         if not df.empty and email in df['Email'].astype(str).str.strip().str.lower().values:
             idx = df[df['Email'].astype(str).str.strip().str.lower() == email].index[0]
-            row_num = idx + 2 # +2 porque o pandas ignora o cabeçalho e é índice 0
+            row_num = idx + 2
             sheet.update(f"A{row_num}:J{row_num}", [row_values])
         else:
-            # Se for um usuário novo, adiciona uma linha no final
             sheet.append_row(row_values)
         return True
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
         return False
 
-# Controle de estado do Login (Sessão)
+# Controle de estado do Login
 if 'logado' not in st.session_state:
     st.session_state.logado = False
     st.session_state.email = ""
@@ -89,11 +87,9 @@ if not st.session_state.logado:
 
 # --- APP AUTENTICADO ---
 else:
-    # --- CONFIGURAÇÃO DA BARRA LATERAL (SIDEBAR) ---
     st.sidebar.write(f"👤 Usuário: **{st.session_state.nome}**")
     st.sidebar.markdown("---")
     
-    # Atualizado: Adicionado o painel de configurações no menu lateral
     menu_selecionado = st.sidebar.radio(
         "Navegação / Painéis:",
         ["💼 Resumo da Aplicação", "📈 Evolução do Saldo", "🎯 Guia de Aportes", "⚙️ Configuração da Carteira"]
@@ -102,11 +98,10 @@ else:
     st.sidebar.markdown("---")
     if st.sidebar.button("Sair do App"):
         st.session_state.logado = False
+        st.session_state.pop('config_inicializada', None) # Limpa a memória das configs ao sair
         st.rerun()
 
-    # --- CONTROLE DE TELAS DINÂMICO ---
-
-    # TELA 1: RESUMO DA APLICAÇÃO
+    # --- TELA 1: RESUMO DA APLICAÇÃO ---
     if menu_selecionado == "💼 Resumo da Aplicação":
         st.title("📊 Resumo Geral da Carteira")
         
@@ -144,164 +139,147 @@ else:
                 evolucao_total_carteira = ((total_carteira_atual - total_carteira_investido) / total_carteira_investido if total_carteira_investido > 0 else 0) * 100
                 
                 col_c1, col_c2, col_c3 = st.columns(3)
-                col_c1.metric("Total Investido na Carteira", f"R$ {total_carteira_investido:,.2f}")
-                col_c2.metric("Valor Atual da Carteira", f"R$ {total_carteira_atual:,.2f}")
-                col_c3.metric("Evolução Global", f"{evolucao_total_carteira:+.2f}%")
+                col_c1.metric("Total Investido", f"R$ {total_carteira_investido:,.2f}")
+                col_c2.metric("Valor Atual", f"R$ {total_carteira_atual:,.2f}")
+                col_c3.metric("Evolução", f"{evolucao_total_carteira:+.2f}%")
                 
                 st.markdown("---")
                 
-                st.subheader("Distribuição do Patrimônio por Categoria")
+                st.subheader("Distribuição por Categoria")
                 df_categoria = carteira_agrupada.groupby('Categoria')['TotalAtual'].sum().reset_index()
-                
-                fig = px.pie(df_categoria, values='TotalAtual', names='Categoria', hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
+                fig = px.pie(df_categoria, values='TotalAtual', names='Categoria', hole=0.4)
                 st.plotly_chart(fig, use_container_width=True)
                 
                 st.markdown("---")
-                
-                st.subheader("Detalhamento por Categorias e Ativos")
-                categorias_unicas = carteira_agrupada['Categoria'].unique()
-                
-                for cat in categorias_unicas:
-                    nome_categoria = cat if str(cat).strip() != "" else "Sem Categoria"
-                    with st.expander(f"📁 Categoria: {nome_categoria}", expanded=True):
-                        df_filtrado = carteira_agrupada[carteira_agrupada['Categoria'] == cat].copy()
-                        
-                        invest_cat = df_filtrado['TotalInvestido'].sum()
-                        atual_cat = df_filtrado['TotalAtual'].sum()
-                        evol_cat = ((atual_cat - invest_cat) / invest_cat if invest_cat > 0 else 0) * 100
-                        
-                        col_sub1, col_sub2, col_sub3 = st.columns(3)
-                        col_sub1.write(f"**Investido:** R$ {invest_cat:,.2f}")
-                        col_sub2.write(f"**Valor Atual:** R$ {atual_cat:,.2f}")
-                        col_sub3.write(f"**Evolução:** {evol_cat:+.2f}%")
-                        
-                        df_exibicao = df_filtrado[['Ativo', 'Quantidade', 'PrecoMedio', 'PrecoAtual', 'TotalInvestido', 'TotalAtual', 'EvolucaoPct']].copy()
-                        df_exibicao['Quantidade'] = df_exibicao['Quantidade'].map('{:,.2f}'.format)
+                st.subheader("Detalhamento por Ativos")
+                for cat in carteira_agrupada['Categoria'].unique():
+                    with st.expander(f"📁 {cat}", expanded=True):
+                        df_exibicao = carteira_agrupada[carteira_agrupada['Categoria'] == cat][['Ativo', 'Quantidade', 'PrecoMedio', 'PrecoAtual', 'TotalAtual', 'EvolucaoPct']].copy()
                         df_exibicao['PrecoMedio'] = df_exibicao['PrecoMedio'].map('R$ {:,.2f}'.format)
                         df_exibicao['PrecoAtual'] = df_exibicao['PrecoAtual'].map('R$ {:,.2f}'.format)
-                        df_exibicao['TotalInvestido'] = df_exibicao['TotalInvestido'].map('R$ {:,.2f}'.format)
                         df_exibicao['TotalAtual'] = df_exibicao['TotalAtual'].map('R$ {:,.2f}'.format)
                         df_exibicao['EvolucaoPct'] = df_exibicao['EvolucaoPct'].map('{:+.2f}%'.format)
-                        
                         st.dataframe(df_exibicao, use_container_width=True)
             else:
-                st.info("Nenhum investimento cadastrado na planilha para este e-mail.")
+                st.info("Nenhum investimento encontrado.")
         else:
-            st.error("Erro ao ler os dados da aba 'Investimentos'.")
+            st.error("Erro ao ler aba 'Investimentos'.")
 
-    # TELA 2: EVOLUÇÃO DO SALDO
+    # --- TELA 2: EVOLUÇÃO DO SALDO ---
     elif menu_selecionado == "📈 Evolução do Saldo":
-        st.title("📈 Histórico de Evolução do Saldo")
+        st.title("📈 Histórico de Saldo")
         df_saldo = ler_planilha("Saldo")
         if not df_saldo.empty:
             df_saldo['Email'] = df_saldo['Email'].astype(str).str.strip().str.lower()
-            dados_usuario = df_saldo[df_saldo['Email'] == st.session_state.email]
-            if not dados_usuario.empty:
-                st.line_chart(dados_usuario.set_index('Data')['Valor'])
-                st.dataframe(dados_usuario[['Data', 'Valor']], use_container_width=True)
+            dados = df_saldo[df_saldo['Email'] == st.session_state.email]
+            if not dados.empty:
+                st.line_chart(dados.set_index('Data')['Valor'])
             else:
-                st.info("Nenhum histórico de saldo encontrado.")
+                st.info("Sem histórico.")
 
-    # TELA 3: GUIA DE APORTES
+    # --- TELA 3: GUIA DE APORTES ---
     elif menu_selecionado == "🎯 Guia de Aportes":
-        st.title("🎯 Estratégia e Guia de Aportes")
-        df_aportes = ler_planilha("Aportes")
-        if not df_aportes.empty:
-            df_aportes['Email'] = df_aportes['Email'].astype(str).str.strip().str.lower()
-            dados_usuario = df_aportes[df_aportes['Email'] == st.session_state.email]
-            if not dados_usuario.empty:
-                st.dataframe(dados_usuario[['MetaAtivo', 'PorcentagemMeta']], use_container_width=True)
-            else:
-                st.info("Nenhuma meta de aporte configurada.")
+        st.title("🎯 Guia de Aportes")
+        st.info("Em breve: Esta tela irá calcular onde aportar baseado na Configuração da Carteira!")
 
-    # TELA 4: CONFIGURAÇÃO DA CARTEIRA (NOVA SEÇÃO SOLICITADA)
+    # --- TELA 4: CONFIGURAÇÃO DA CARTEIRA ---
     elif menu_selecionado == "⚙️ Configuração da Carteira":
-        st.title("⚙️ Definição de Metas de Alocação (Asset Allocation)")
-        st.markdown("Estipule seus objetivos percentuais para cada classe de ativo. O sistema exige a validação de 100% por nível hierárquico antes de salvar.")
-        
-        # Tenta buscar as configurações salvas do usuário atual
-        df_conf = ler_planilha("Configuracao")
-        user_conf = {}
-        if not df_conf.empty:
-            df_conf['Email'] = df_conf['Email'].astype(str).str.strip().str.lower()
-            row = df_conf[df_conf['Email'] == st.session_state.email]
-            if not row.empty:
-                user_conf = row.iloc[0].to_dict()
-        
-        # Definição de valores padrão (recuperados da planilha ou 0 se vazios)
-        rf_def = float(user_conf.get('RF', 50.0))
-        rv_def = float(user_conf.get('RV', 50.0))
-        rv_br_def = float(user_conf.get('RV_Brasil', 50.0))
-        rv_ex_def = float(user_conf.get('RV_Exterior', 50.0))
-        br_ac_def = float(user_conf.get('BR_Acoes', 50.0))
-        br_fii_def = float(user_conf.get('BR_FIIs', 50.0))
-        ex_st_def = float(user_conf.get('EX_Stocks', 40.0))
-        ex_re_def = float(user_conf.get('EX_REITs', 30.0))
-        ex_et_def = float(user_conf.get('EX_ETFs', 30.0))
-        
-        # --- NÍVEL 1: MACRO ---
-        st.subheader("Nível 1: Macro Alocação da Carteira")
+        st.title("⚙️ Definição de Metas de Alocação")
+        st.markdown("Ajuste seus percentuais. O sistema compensa automaticamente o lado oposto para a soma sempre cravar **100%**.")
+
+        # Inicializa as variáveis na memória do Streamlit lendo do banco de dados na primeira execução
+        if 'config_inicializada' not in st.session_state:
+            df_conf = ler_planilha("Configuracao")
+            user_conf = {}
+            if not df_conf.empty:
+                df_conf['Email'] = df_conf['Email'].astype(str).str.strip().str.lower()
+                row = df_conf[df_conf['Email'] == st.session_state.email]
+                if not row.empty:
+                    user_conf = row.iloc[0].to_dict()
+            
+            st.session_state.rf_val = float(user_conf.get('RF', 50.0))
+            st.session_state.rv_val = float(user_conf.get('RV', 50.0))
+            st.session_state.rv_br_val = float(user_conf.get('RV_Brasil', 50.0))
+            st.session_state.rv_ex_val = float(user_conf.get('RV_Exterior', 50.0))
+            st.session_state.br_ac_val = float(user_conf.get('BR_Acoes', 50.0))
+            st.session_state.br_fii_val = float(user_conf.get('BR_FIIs', 50.0))
+            st.session_state.ex_st_val = float(user_conf.get('EX_Stocks', 40.0))
+            st.session_state.ex_re_val = float(user_conf.get('EX_REITs', 30.0))
+            st.session_state.ex_et_val = float(user_conf.get('EX_ETFs', 30.0))
+            st.session_state.config_inicializada = True
+
+        # Callbacks de Ajuste Matemático
+        def ajusta_macro(modificado):
+            if modificado == 'rf':
+                st.session_state.rv_val = round(100.0 - st.session_state.rf_val, 2)
+            else:
+                st.session_state.rf_val = round(100.0 - st.session_state.rv_val, 2)
+
+        def ajusta_rv(modificado):
+            if modificado == 'br':
+                st.session_state.rv_ex_val = round(100.0 - st.session_state.rv_br_val, 2)
+            else:
+                st.session_state.rv_br_val = round(100.0 - st.session_state.rv_ex_val, 2)
+
+        def ajusta_br(modificado):
+            if modificado == 'ac':
+                st.session_state.br_fii_val = round(100.0 - st.session_state.br_ac_val, 2)
+            else:
+                st.session_state.br_ac_val = round(100.0 - st.session_state.br_fii_val, 2)
+
+        def ajusta_ex(modificado):
+            val = st.session_state[f"ex_{modificado}_val"]
+            rem = 100.0 - val
+            
+            if modificado == 'st':
+                k1, k2, old_1, old_2 = 'ex_re_val', 'ex_et_val', st.session_state.ex_re_val, st.session_state.ex_et_val
+            elif modificado == 're':
+                k1, k2, old_1, old_2 = 'ex_st_val', 'ex_et_val', st.session_state.ex_st_val, st.session_state.ex_et_val
+            else: 
+                k1, k2, old_1, old_2 = 'ex_st_val', 'ex_re_val', st.session_state.ex_st_val, st.session_state.ex_re_val
+                
+            old_sum = old_1 + old_2
+            if old_sum == 0:
+                st.session_state[k1] = round(rem / 2.0, 2)
+                st.session_state[k2] = round(rem / 2.0, 2)
+            else:
+                st.session_state[k1] = round((old_1 / old_sum) * rem, 2)
+                st.session_state[k2] = round(rem - st.session_state[k1], 2) # Garante cravado os 100%
+
+        # --- CAMPOS VISUAIS (Ligados aos Callbacks) ---
+        st.subheader("Nível 1: Macro Alocação")
         col1, col2 = st.columns(2)
-        rf = col1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, value=rf_def, step=1.0)
-        rv = col2.number_input("Renda Variável (RV) %", min_value=0.0, max_value=100.0, value=rv_def, step=1.0)
+        col1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, step=1.0, key="rf_val", on_change=ajusta_macro, args=('rf',))
+        col2.number_input("Renda Variável (RV) %", min_value=0.0, max_value=100.0, step=1.0, key="rv_val", on_change=ajusta_macro, args=('rv',))
         
-        soma_n1 = rf + rv
-        n1_valido = (soma_n1 == 100.0)
-        if not n1_valido:
-            st.warning(f"⚠️ A soma de **RF + RV** é {soma_n1}%. Deve ser exatamente 100%.")
-            
-        # --- NÍVEL 2: RENDA VARIÁVEL ---
         st.markdown("---")
-        st.subheader("Nível 2: Distribuição Geográfica (Dentro de Renda Variável)")
+        st.subheader("Nível 2: Renda Variável")
         col3, col4 = st.columns(2)
-        rv_br = col3.number_input("Brasil %", min_value=0.0, max_value=100.0, value=rv_br_def, step=1.0)
-        rv_ex = col4.number_input("Exterior %", min_value=0.0, max_value=100.0, value=rv_ex_def, step=1.0)
+        col3.number_input("Brasil %", min_value=0.0, max_value=100.0, step=1.0, key="rv_br_val", on_change=ajusta_rv, args=('br',))
+        col4.number_input("Exterior %", min_value=0.0, max_value=100.0, step=1.0, key="rv_ex_val", on_change=ajusta_rv, args=('ex',))
         
-        soma_n2 = rv_br + rv_ex
-        n2_valido = (soma_n2 == 100.0)
-        if not n2_valido:
-            st.warning(f"⚠️ A soma de **Brasil + Exterior** é {soma_n2}%. Deve ser exatamente 100%.")
-            
-        # --- NÍVEL 3: SUBCLASSES ---
         st.markdown("---")
-        col_bloco1, col_bloco2 = st.columns(2)
-        
-        with col_bloco1:
-            st.subheader("Nível 3A: Detalhe Brasil")
-            br_ac = st.number_input("Ações %", min_value=0.0, max_value=100.0, value=br_ac_def, step=1.0)
-            br_fii = st.number_input("FIIs %", min_value=0.0, max_value=100.0, value=br_fii_def, step=1.0)
-            
-            soma_n3_br = br_ac + br_fii
-            n3_br_valido = (soma_n3_br == 100.0)
-            if not n3_br_valido:
-                st.warning(f"⚠️ A soma de **Ações + FIIs** é {soma_n3_br}%. Deve ser exatamente 100%.")
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            st.subheader("Nível 3A: Brasil")
+            st.number_input("Ações %", min_value=0.0, max_value=100.0, step=1.0, key="br_ac_val", on_change=ajusta_br, args=('ac',))
+            st.number_input("FIIs %", min_value=0.0, max_value=100.0, step=1.0, key="br_fii_val", on_change=ajusta_br, args=('fii',))
                 
-        with col_bloco2:
-            st.subheader("Nível 3B: Detalhe Exterior")
-            ex_st = st.number_input("Stocks %", min_value=0.0, max_value=100.0, value=ex_st_def, step=1.0)
-            ex_re = st.number_input("REITs %", min_value=0.0, max_value=100.0, value=ex_re_def, step=1.0)
-            ex_et = st.number_input("ETFs %", min_value=0.0, max_value=100.0, value=ex_et_def, step=1.0)
+        with col_b2:
+            st.subheader("Nível 3B: Exterior")
+            st.number_input("Stocks %", min_value=0.0, max_value=100.0, step=1.0, key="ex_st_val", on_change=ajusta_ex, args=('st',))
+            st.number_input("REITs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_re_val", on_change=ajusta_ex, args=('re',))
+            st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
             
-            soma_n3_ex = ex_st + ex_re + ex_et
-            n3_ex_valido = (soma_n3_ex == 100.0)
-            if not n3_ex_valido:
-                st.warning(f"⚠️ A soma de **Stocks + REITs + ETFs** é {soma_n3_ex}%. Deve ser exatamente 100%.")
-                
-        # --- MOTOR DE VALIDAÇÃO E ENVIO ---
         st.markdown("---")
-        telas_validas = n1_valido and n2_valido and n3_br_valido and n3_ex_valido
         
-        if telas_validas:
-            st.success("✅ Todas as árvores de distribuição estão consistentes e somam 100%!")
-        else:
-            st.error("❌ A gravação está bloqueada. Por favor, ajuste os percentuais para que as somas de cada seção totalizem 100%.")
-            
-        # O botão fica desativado nativamente pelo Streamlit caso a soma falhe
-        if st.button("Salvar Configuração da Carteira", disabled=not telas_validas):
+        # Botão de salvar livre das antigas travas matemáticas
+        if st.button("Salvar Configuração da Carteira"):
             dados_para_salvar = {
-                'RF': rf, 'RV': rv, 'RV_Brasil': rv_br, 'RV_Exterior': rv_ex,
-                'BR_Acoes': br_ac, 'BR_FIIs': br_fii, 'EX_Stocks': ex_st, 'EX_REITs': ex_re, 'EX_ETFs': ex_et
+                'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
+                'RV_Brasil': st.session_state.rv_br_val, 'RV_Exterior': st.session_state.rv_ex_val,
+                'BR_Acoes': st.session_state.br_ac_val, 'BR_FIIs': st.session_state.br_fii_val, 
+                'EX_Stocks': st.session_state.ex_st_val, 'EX_REITs': st.session_state.ex_re_val, 'EX_ETFs': st.session_state.ex_et_val
             }
             if salvar_configuracao(st.session_state.email, dados_para_salvar):
-                st.success("Configurações persistidas com sucesso na planilha Google!")
-                st.rerun()
+                st.success("✅ Metas atualizadas com sucesso!")
