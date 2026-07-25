@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import json
-import plotly.express as px  # Biblioteca para o gráfico de pizza
+import plotly.express as px
 
 st.set_page_config(page_title="App Investimentos v1.0", layout="wide")
 
@@ -66,10 +66,9 @@ else:
 
     st.title("📊 Seu Painel de Investimentos")
 
-    # Atualizado: Primeira aba agora é o Resumo da Aplicação
     aba1, aba2, aba3 = st.tabs(["💼 Resumo da Aplicação", "📈 Evolução do Saldo", "🎯 Guia de Aportes"])
 
-    # 1ª TELA: RESUMO DA APLICAÇÃO
+    # 1ª TELA: RESUMO DA APLICAÇÃO (COM AGREGAÇÃO E PREÇO MÉDIO PONDERADO)
     with aba1:
         st.header("Resumo Geral da Carteira")
         
@@ -79,22 +78,38 @@ else:
             dados_usuario = df_invest[df_invest['Email'] == st.session_state.email].copy()
             
             if not dados_usuario.empty:
-                # Garantir que os dados lidos são números corretos
+                # Normalização de strings para evitar duplicidade por erro de digitação
+                dados_usuario['Ativo'] = dados_usuario['Ativo'].astype(str).str.strip().str.upper()
+                dados_usuario['Categoria'] = dados_usuario['Categoria'].astype(str).str.strip()
+                
+                # Conversão segura para números
                 dados_usuario['Quantidade'] = pd.to_numeric(dados_usuario['Quantidade'], errors='coerce').fillna(0)
                 dados_usuario['PrecoMedio'] = pd.to_numeric(dados_usuario['PrecoMedio'], errors='coerce').fillna(0)
                 dados_usuario['PrecoAtual'] = pd.to_numeric(dados_usuario['PrecoAtual'], errors='coerce').fillna(0)
                 
-                # Cálculos financeiros por ativo
+                # Cálculos financeiros no nível da linha antes de agrupar
                 dados_usuario['TotalInvestido'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
                 dados_usuario['TotalAtual'] = dados_usuario['Quantidade'] * dados_usuario['PrecoAtual']
                 
-                # Evolução individual do ativo baseado no Preço Médio vs Preço Atual
-                dados_usuario['EvolucaoPct'] = ((dados_usuario['PrecoAtual'] - dados_usuario['PrecoMedio']) / dados_usuario['PrecoMedio'].replace(0, 1)) * 100
-                dados_usuario.loc[dados_usuario['PrecoMedio'] == 0, 'EvolucaoPct'] = 0
+                # --- PROCESSAMENTO DOS DADOS (AGREGAÇÃO POR ATIVO E CATEGORIA) ---
+                carteira_agrupada = dados_usuario.groupby(['Ativo', 'Categoria']).agg({
+                    'Quantidade': 'sum',
+                    'TotalInvestido': 'sum',
+                    'TotalAtual': 'sum',
+                    'PrecoAtual': 'first'  # O preço atual do GOOGLEFINANCE tende a ser idêntico para o mesmo ativo
+                }).reset_index()
+                
+                # Cálculo do Preço Médio Ponderado da Carteira (Total Investido / Quantidade Total)
+                carteira_agrupada['PrecoMedio'] = carteira_agrupada['TotalInvestido'] / carteira_agrupada['Quantidade'].replace(0, 1)
+                carteira_agrupada.loc[carteira_agrupada['Quantidade'] == 0, 'PrecoMedio'] = 0
+                
+                # Cálculo da Evolução Percentual baseada no novo preço médio ponderado
+                carteira_agrupada['EvolucaoPct'] = ((carteira_agrupada['PrecoAtual'] - carteira_agrupada['PrecoMedio']) / carteira_agrupada['PrecoMedio'].replace(0, 1)) * 100
+                carteira_agrupada.loc[carteira_agrupada['PrecoMedio'] == 0, 'EvolucaoPct'] = 0
                 
                 # --- VISÃO GLOBAL DA CARTEIRA ---
-                total_carteira_investido = dados_usuario['TotalInvestido'].sum()
-                total_carteira_atual = dados_usuario['TotalAtual'].sum()
+                total_carteira_investido = carteira_agrupada['TotalInvestido'].sum()
+                total_carteira_atual = carteira_agrupada['TotalAtual'].sum()
                 evolucao_total_carteira = ((total_carteira_atual - total_carteira_investido) / total_carteira_investido if total_carteira_investido > 0 else 0) * 100
                 
                 # Exibição de Cards com Resumo Geral
@@ -107,13 +122,13 @@ else:
                 
                 # --- GRÁFICO DE PIZZA (DISTRIBUIÇÃO POR CATEGORIA) ---
                 st.subheader("Distribuição do Patrimônio por Categoria")
-                df_categoria = dados_usuario.groupby('Categoria')['TotalAtual'].sum().reset_index()
+                df_categoria = carteira_agrupada.groupby('Categoria')['TotalAtual'].sum().reset_index()
                 
                 fig = px.pie(
                     df_categoria, 
                     values='TotalAtual', 
                     names='Categoria', 
-                    hole=0.4, # Deixa o gráfico estilo 'Donut' (mais moderno)
+                    hole=0.4,
                     color_discrete_sequence=px.colors.qualitative.Safe
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -123,15 +138,13 @@ else:
                 # --- SEÇÕES SEPARADAS POR CATEGORIA ---
                 st.subheader("Detalhamento por Categorias e Ativos")
                 
-                categorias_unicas = dados_usuario['Categoria'].unique()
+                categorias_unicas = carteira_agrupada['Categoria'].unique()
                 
                 for cat in categorias_unicas:
-                    # Cria um bloco expansível para cada categoria encontrada
                     nome_categoria = cat if str(cat).strip() != "" else "Sem Categoria"
                     with st.expander(f"📁 Categoria: {nome_categoria}", expanded=True):
-                        df_filtrado = dados_usuario[dados_usuario['Categoria'] == cat].copy()
+                        df_filtrado = carteira_agrupada[carteira_agrupada['Categoria'] == cat].copy()
                         
-                        # Resumo financeiro específico da categoria
                         invest_cat = df_filtrado['TotalInvestido'].sum()
                         atual_cat = df_filtrado['TotalAtual'].sum()
                         evol_cat = ((atual_cat - invest_cat) / invest_cat if invest_cat > 0 else 0) * 100
@@ -141,10 +154,11 @@ else:
                         col_sub2.write(f"**Valor Atual:** R$ {atual_cat:,.2f}")
                         col_sub3.write(f"**Evolução:** {evol_cat:+.2f}%")
                         
-                        # Tabela formatada contendo a evolução de cada ativo
+                        # Preparação da tabela para exibição
                         df_exibicao = df_filtrado[['Ativo', 'Quantidade', 'PrecoMedio', 'PrecoAtual', 'TotalInvestido', 'TotalAtual', 'EvolucaoPct']].copy()
                         
-                        # Formatações estéticas para a tabela
+                        # Formatações visuais
+                        df_exibicao['Quantidade'] = df_exibicao['Quantidade'].map('{:,.2f}'.format)
                         df_exibicao['PrecoMedio'] = df_exibicao['PrecoMedio'].map('R$ {:,.2f}'.format)
                         df_exibicao['PrecoAtual'] = df_exibicao['PrecoAtual'].map('R$ {:,.2f}'.format)
                         df_exibicao['TotalInvestido'] = df_exibicao['TotalInvestido'].map('R$ {:,.2f}'.format)
@@ -157,7 +171,7 @@ else:
         else:
             st.error("Erro ao ler os dados da aba 'Investimentos'.")
 
-    # ABA 2: EVOLUÇÃO DO SALDO (Mantida)
+    # ABA 2: EVOLUÇÃO DO SALDO
     with aba2:
         st.header("Histórico de Evolução do Saldo")
         df_saldo = ler_planilha("Saldo")
@@ -170,7 +184,7 @@ else:
             else:
                 st.info("Nenhum histórico de saldo encontrado.")
 
-    # ABA 3: GUIA DE APORTES (Mantida)
+    # ABA 3: GUIA DE APORTES
     with aba3:
         st.header("Estratégia e Guia de Aportes")
         df_aportes = ler_planilha("Aportes")
