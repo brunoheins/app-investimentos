@@ -16,32 +16,44 @@ st.markdown("""
             padding-bottom: 2rem;
         }
         
-        /* 1. Estilizando as abas inativas para parecerem botões com contorno */
-        button[data-baseweb="tab"] {
-            border: 1px solid #6c757d !important; /* Contorno cinza suave */
-            border-radius: 8px !important; /* Bordas arredondadas */
-            margin-right: 8px !important; /* Espaço entre os botões */
-            padding: 8px 16px !important; /* Espaçamento interno */
+        /* 1. Adiciona um gap (espaço) entre as abas para não grudarem */
+        div[data-testid="stTabs"] button[role="tablist"] {
+            gap: 10px;
+        }
+
+        /* 2. Estilizando as abas inativas */
+        div[data-testid="stTabs"] button[role="tab"] {
+            border: 1px solid #d3d3d3 !important; /* Contorno cinza claro */
+            border-radius: 8px !important; /* Arredondamento das bordas */
+            padding: 6px 16px !important; /* Espaçamento interno */
             background-color: transparent !important;
-            transition: all 0.3s ease !important; /* Transição suave */
+            min-height: 40px !important; 
         }
         
-        /* 2. Efeito ao passar o mouse (Hover) nas abas inativas */
-        button[data-baseweb="tab"]:hover {
-            border-color: #ff4b4b !important;
+        /* 3. Efeito ao passar o mouse (Hover) */
+        div[data-testid="stTabs"] button[role="tab"]:hover {
+            border-color: #ff4b4b !important; 
             color: #ff4b4b !important;
             background-color: rgba(255, 75, 75, 0.05) !important;
         }
         
-        /* 3. Estilizando a aba ATIVA (Selecionada) */
-        button[data-baseweb="tab"][aria-selected="true"] {
-            background-color: #ff4b4b !important; /* Cor de fundo (Vermelho padrão Streamlit) */
-            color: white !important; /* Texto branco */
+        /* 4. Estilizando a aba ATIVA (Selecionada) */
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            background-color: #ff4b4b !important; 
+            color: white !important; 
             border-color: #ff4b4b !important;
-            font-weight: bold !important;
+            font-weight: 600 !important;
         }
-        
-        /* 4. Escondendo as linhas nativas sublinhadas do Streamlit */
+
+        /* 5. Estilizando o texto dentro da aba para garantir contraste na aba ativa */
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {
+            color: white !important;
+        }
+
+        /* 6. Escondendo a barrinha inferior e linha de base do Streamlit */
+        div[data-testid="stTabIndicator"] {
+            display: none !important;
+        }
         div[data-baseweb="tab-highlight"] {
             display: none !important;
         }
