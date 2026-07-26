@@ -148,7 +148,7 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         return False
 
 def obter_cotacoes():
-    """Lê a aba Cotacao (múltiplas colunas) e retorna um dicionário unificado com todos os preços"""
+    """Lê a aba Cotacao de forma inteligente, caçando os cabeçalhos das categorias"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -159,21 +159,31 @@ def obter_cotacoes():
         valores = sheet.get_all_values()
         cotacoes = {}
         if len(valores) > 1:
-            # Índices das colunas de Ativo e Preço: A/B(0,1), C/D(2,3), E/F(4,5), G/H(6,7), I/J(8,9), K/L(10,11)
-            pares = [(0,1), (2,3), (4,5), (6,7), (8,9), (10,11)]
+            cabecalhos = valores[0]
+            indices_ativos = []
+            
+            # 1. Procura em quais colunas os nomes dos ativos estão escritos
+            for i, col in enumerate(cabecalhos):
+                c = str(col).strip().upper()
+                if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO", "FIIS", "FII", "IPCA", "RENDA FIXA", "STOCKS", "REITS", "ETFS"]:
+                    indices_ativos.append(i)
+            
+            # 2. Puxa o ativo da coluna encontrada, e o preço obrigatoriamente da coluna ao lado (i + 1)
             for linha in valores[1:]:
-                for i_ativo, i_preco in pares:
-                    if len(linha) > i_preco: # Garante que a planilha tem essa coluna preenchida
-                        ativo = str(linha[i_ativo]).strip().upper()
-                        preco = extrair_numero_br(linha[i_preco])
+                for idx_ativo in indices_ativos:
+                    idx_preco = idx_ativo + 1
+                    if len(linha) > idx_preco:
+                        ativo = str(linha[idx_ativo]).strip().upper()
+                        preco = extrair_numero_br(linha[idx_preco])
                         if ativo and preco > 0:
                             cotacoes[ativo] = preco
+                            
         return cotacoes
     except Exception as e:
         return {}
 
 def obter_ativos_por_categoria():
-    """Lê a aba Cotacao e agrupa os ativos de acordo com a sua coluna de origem"""
+    """Lê a aba Cotacao e agrupa os ativos dinamicamente, sem depender da posição da coluna"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -182,21 +192,27 @@ def obter_ativos_por_categoria():
         sheet = client.open("App_Investimentos").worksheet("Cotacao")
         
         valores = sheet.get_all_values()
-        
-        # Mapeia o índice da coluna da planilha para o nome da Categoria no App
-        # IPCA (Coluna E = Índice 4) vira "Renda Fixa" no sistema
-        mapa_colunas = {
-            0: "Ações", 
-            2: "FIIs", 
-            4: "Renda Fixa", 
-            6: "Stocks", 
-            8: "REITs", 
-            10: "ETFs"
-        }
-        
-        cat_dict = {cat: [] for cat in mapa_colunas.values()}
+        cat_dict = {}
         
         if len(valores) > 1:
+            cabecalhos = valores[0]
+            mapa_colunas = {}
+            
+            # Mapeia dinamicamente qual categoria está em qual coluna
+            for i, col in enumerate(cabecalhos):
+                c = str(col).strip().upper()
+                if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: mapa_colunas[i] = "Ações"
+                elif c in ["FIIS", "FII"]: mapa_colunas[i] = "FIIs"
+                elif c in ["IPCA", "RENDA FIXA", "RF"]: mapa_colunas[i] = "Renda Fixa"
+                elif c in ["STOCKS", "STOCK"]: mapa_colunas[i] = "Stocks"
+                elif c in ["REITS", "REIT"]: mapa_colunas[i] = "REITs"
+                elif c in ["ETFS", "ETF"]: mapa_colunas[i] = "ETFs"
+            
+            # Prepara a lista vazia para as categorias que ele encontrou
+            for cat in mapa_colunas.values():
+                cat_dict[cat] = []
+                
+            # Popula as listas
             for linha in valores[1:]:
                 for idx, cat in mapa_colunas.items():
                     if len(linha) > idx:
@@ -204,10 +220,10 @@ def obter_ativos_por_categoria():
                         if ativo and ativo != "NAN" and ativo not in cat_dict[cat]:
                             cat_dict[cat].append(ativo)
                             
-        # Ordena em ordem alfabética para ficar fácil de achar no menu
-        for cat in cat_dict:
-            cat_dict[cat].sort()
-            
+            # Ordem alfabética para facilitar a busca no menu
+            for cat in cat_dict:
+                cat_dict[cat].sort()
+                
         return cat_dict
     except Exception as e:
         return {}
