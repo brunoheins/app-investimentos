@@ -179,3 +179,44 @@ def obter_cotacoes():
         return cotacoes
     except Exception as e:
         return {}
+
+def registrar_deposito(email, data, valor):
+    """Salva um novo aporte financeiro na aba Depositos"""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = json.loads(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        try:
+            sheet = client.open("App_Investimentos").worksheet("Depositos")
+        except:
+            sheet = client.open("App_Investimentos").add_worksheet(title="Depositos", rows=100, cols=3)
+            sheet.append_row(["Email", "Data", "Valor"])
+            
+        # Formata o valor numérico para salvar no formato BR (ex: 1500,50)
+        valor_str = f"{valor:.2f}".replace('.', ',')
+        sheet.append_row([email, data, valor_str])
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar depósito: {e}")
+        return False
+
+def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio):
+    """Salva uma nova compra de ativo na aba Investimentos"""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = json.loads(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open("App_Investimentos").worksheet("Investimentos")
+        
+        qtd_str = f"{quantidade:.4f}".replace('.', ',').rstrip('0').rstrip(',')
+        preco_str = f"{preco_medio:.4f}".replace('.', ',')
+        
+        # O último campo em branco é o PrecoAtual (que agora buscamos automático da aba Cotacao)
+        sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, ""])
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar compra: {e}")
+        return False
