@@ -185,9 +185,9 @@ else:
     # --- TELA 4: CONFIGURAÇÃO DA CARTEIRA ---
     elif menu_selecionado == "⚙️ Configuração da Carteira":
         st.title("⚙️ Definição de Metas de Alocação")
-        st.markdown("Ajuste seus percentuais. O sistema compensa automaticamente o lado oposto para a soma sempre cravar **100%**.")
+        st.markdown("Ajuste seus percentuais. O sistema compensa automaticamente para a soma sempre cravar **100%**.")
 
-        # Inicializa as variáveis na memória do Streamlit lendo do banco de dados na primeira execução
+        # Inicializa as variáveis
         if 'config_inicializada' not in st.session_state:
             df_conf = ler_planilha("Configuracao")
             user_conf = {}
@@ -208,7 +208,7 @@ else:
             st.session_state.ex_et_val = float(user_conf.get('EX_ETFs', 30.0))
             st.session_state.config_inicializada = True
 
-        # Callbacks de Ajuste Matemático
+        # Callbacks (REGRAS ATUALIZADAS AQUI)
         def ajusta_macro(modificado):
             if modificado == 'rf':
                 st.session_state.rv_val = round(100.0 - st.session_state.rf_val, 2)
@@ -228,25 +228,34 @@ else:
                 st.session_state.br_ac_val = round(100.0 - st.session_state.br_fii_val, 2)
 
         def ajusta_ex(modificado):
-            val = st.session_state[f"ex_{modificado}_val"]
-            rem = 100.0 - val
-            
             if modificado == 'st':
-                k1, k2, old_1, old_2 = 'ex_re_val', 'ex_et_val', st.session_state.ex_re_val, st.session_state.ex_et_val
+                # Stocks altera ETFs
+                novo_et = round(100.0 - st.session_state.ex_st_val - st.session_state.ex_re_val, 2)
+                if novo_et < 0:
+                    st.session_state.ex_et_val = 0.0
+                    st.session_state.ex_re_val = round(100.0 - st.session_state.ex_st_val, 2)
+                else:
+                    st.session_state.ex_et_val = novo_et
+                    
             elif modificado == 're':
-                k1, k2, old_1, old_2 = 'ex_st_val', 'ex_et_val', st.session_state.ex_st_val, st.session_state.ex_et_val
-            else: 
-                k1, k2, old_1, old_2 = 'ex_st_val', 'ex_re_val', st.session_state.ex_st_val, st.session_state.ex_re_val
-                
-            old_sum = old_1 + old_2
-            if old_sum == 0:
-                st.session_state[k1] = round(rem / 2.0, 2)
-                st.session_state[k2] = round(rem / 2.0, 2)
-            else:
-                st.session_state[k1] = round((old_1 / old_sum) * rem, 2)
-                st.session_state[k2] = round(rem - st.session_state[k1], 2) # Garante cravado os 100%
+                # REITs altera ETFs
+                novo_et = round(100.0 - st.session_state.ex_st_val - st.session_state.ex_re_val, 2)
+                if novo_et < 0:
+                    st.session_state.ex_et_val = 0.0
+                    st.session_state.ex_st_val = round(100.0 - st.session_state.ex_re_val, 2)
+                else:
+                    st.session_state.ex_et_val = novo_et
+                    
+            elif modificado == 'et':
+                # ETFs altera Stocks
+                novo_st = round(100.0 - st.session_state.ex_et_val - st.session_state.ex_re_val, 2)
+                if novo_st < 0:
+                    st.session_state.ex_st_val = 0.0
+                    st.session_state.ex_re_val = round(100.0 - st.session_state.ex_et_val, 2)
+                else:
+                    st.session_state.ex_st_val = novo_st
 
-        # --- CAMPOS VISUAIS (Ligados aos Callbacks) ---
+        # --- CAMPOS VISUAIS ---
         st.subheader("Nível 1: Macro Alocação")
         col1, col2 = st.columns(2)
         col1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, step=1.0, key="rf_val", on_change=ajusta_macro, args=('rf',))
@@ -273,7 +282,6 @@ else:
             
         st.markdown("---")
         
-        # Botão de salvar livre das antigas travas matemáticas
         if st.button("Salvar Configuração da Carteira"):
             dados_para_salvar = {
                 'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
