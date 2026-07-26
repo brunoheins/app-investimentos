@@ -437,29 +437,52 @@ else:
                 df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
                 df_inicial = df_cat_salvo
 
-            # Editor de dados interativo configurado para melhor UX
-            df_editado = st.data_editor(
-                df_inicial,
-                num_rows="dynamic",
-                use_container_width=True,
-                hide_index=True, 
-                key=f"editor_cat_{cat_selecionada}",
-                column_config={
-                    "Ativo": st.column_config.TextColumn(
-                        "Ativo (Ticker)",
-                        width="large",     # Deixa a coluna do nome mais larga
-                        required=True      # Impede que o usuário deixe vazio
-                    ),
-                    "Peso (%)": st.column_config.NumberColumn(
-                        "Peso (%)",
-                        width="medium",    # Aproxima a coluna numérica do texto
-                        min_value=0.0,     # Impede números negativos
-                        max_value=100.0,   # Impede passar de 100%
-                        step=0.5,          # Os botões de seta pulam de 0.5 em 0.5
-                        format="%.2f"      # Força a exibição com 2 casas decimais (ex: 15.50)
-                    )
-                }
-            )
+            # Criamos colunas para NÃO deixar a tabela esticar na tela inteira
+            # A tabela vai ocupar 60% da tela e 40% vai ficar vazio à direita
+            col_tabela, col_vazia = st.columns([1.5, 1])
+
+            with col_tabela:
+                # Mudamos o 'key' (adicionando 'v2') para forçar o Streamlit a apagar o visual antigo
+                df_editado = st.data_editor(
+                    df_inicial,
+                    num_rows="dynamic",
+                    use_container_width=True, # Agora ele preenche só os 60% da coluna
+                    hide_index=True, 
+                    key=f"editor_cat_v2_{cat_selecionada}", 
+                    column_config={
+                        "Ativo": st.column_config.TextColumn(
+                            "Ativo (Ticker)",
+                            required=True
+                        ),
+                        "Peso (%)": st.column_config.NumberColumn(
+                            "Peso (%)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            step=0.5,
+                            format="%.2f" # Força exibir como 100.00
+                        )
+                    }
+                )
+
+            # Cálculo em tempo real da soma dos pesos (puxando do df_editado correto)
+            soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
+            
+            # Aqui mantemos a informação e o botão de salvar logo abaixo da tabela
+            with col_tabela:
+                col_info, col_btn = st.columns([2, 1])
+                with col_info:
+                    if abs(soma_pesos - 100.0) < 0.01:
+                        st.success(f"✅ Soma total: **{soma_pesos:.2f}%**")
+                    else:
+                        st.warning(f"⚠️ Soma: **{soma_pesos:.2f}%** (O ideal é 100%)")
+                
+                with col_btn:
+                    if st.button(f"Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
+                        df_para_salvar = df_editado.copy()
+                        df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
+                        if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
+                            st.success(f"Ativos salvos!")
+                            st.rerun()
 
             # Cálculo em tempo real da soma dos pesos
             soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
