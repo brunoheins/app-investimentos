@@ -92,14 +92,32 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         return False
 
 def extrair_numero_br(valor_str):
-    """Função auxiliar para limpar textos de moeda (R$ 1.500,50 -> 1500.50)"""
-    v = str(valor_str).replace('R$', '').strip()
+    """Lê números do Sheets no padrão BR e converte para Float do Python"""
+    if pd.isna(valor_str):
+        return 0.0
+    if isinstance(valor_str, (int, float)):
+        return float(valor_str)
+    
+    v = str(valor_str).replace('R$', '').replace('%', '').strip()
+    if v == '' or v.lower() == 'nan':
+        return 0.0
+        
+    # Se tem vírgula, é padrão brasileiro (ex: 1.500,50)
     if ',' in v:
-        v = v.replace('.', '').replace(',', '.')
+        v = v.replace('.', '')    # Remove os pontos de milhar
+        v = v.replace(',', '.')   # Transforma a vírgula em ponto (padrão Python)
+        
     try:
         return float(v)
     except:
         return 0.0
+
+def formata_br(valor):
+    """Recebe um float do Python e devolve uma string R$ no padrão BR (ex: R$ 1.500,50)"""
+    try:
+        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "R$ 0,00"
 
 def obter_cotacoes():
     """Lê a aba Cotacao e retorna um dicionário com todos os preços unificados"""
