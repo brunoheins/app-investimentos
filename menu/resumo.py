@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils import ler_planilha, obter_cotacoes
+from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 
 def render():
     st.title("📊 Resumo Geral da Carteira")
@@ -15,17 +15,15 @@ def render():
             dados_usuario['Ativo'] = dados_usuario['Ativo'].astype(str).str.strip().str.upper()
             dados_usuario['Categoria'] = dados_usuario['Categoria'].astype(str).str.strip()
             
-            dados_usuario['Quantidade'] = pd.to_numeric(dados_usuario['Quantidade'], errors='coerce').fillna(0)
-            dados_usuario['PrecoMedio'] = pd.to_numeric(dados_usuario['PrecoMedio'], errors='coerce').fillna(0)
-            dados_usuario['PrecoAtual'] = pd.to_numeric(dados_usuario['PrecoAtual'], errors='coerce').fillna(0)
-
-            # --- NOVO: BUSCANDO COTAÇÕES AO VIVO ---
+            # Aplica a inteligência de conversão brasileira
+            dados_usuario['Quantidade'] = dados_usuario['Quantidade'].apply(extrair_numero_br)
+            dados_usuario['PrecoMedio'] = dados_usuario['PrecoMedio'].apply(extrair_numero_br)
+            dados_usuario['PrecoAtual'] = dados_usuario['PrecoAtual'].apply(extrair_numero_br)
+            
             cotacoes_dict = obter_cotacoes()
             dados_usuario['PrecoCotacao'] = dados_usuario['Ativo'].map(cotacoes_dict)
-            # Combina: usa a cotação da aba "Cotacao", se não achar, usa o PrecoAtual antigo, se não, 0.
             dados_usuario['PrecoAtual'] = pd.to_numeric(dados_usuario['PrecoCotacao']).combine_first(dados_usuario['PrecoAtual']).fillna(0)
-            # --------------------------------------
-
+            
             dados_usuario['TotalInvestido'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
             dados_usuario['TotalAtual'] = dados_usuario['Quantidade'] * dados_usuario['PrecoAtual']
             
@@ -47,9 +45,12 @@ def render():
             evolucao_total_carteira = ((total_carteira_atual - total_carteira_investido) / total_carteira_investido if total_carteira_investido > 0 else 0) * 100
             
             col_c1, col_c2, col_c3 = st.columns(3)
-            col_c1.metric("Total Investido", f"R$ {total_carteira_investido:,.2f}")
-            col_c2.metric("Valor Atual", f"R$ {total_carteira_atual:,.2f}")
-            col_c3.metric("Evolução", f"{evolucao_total_carteira:+.2f}%")
+            # Aplica a formatação BR visual nos grandes números
+            col_c1.metric("Total Investido", formata_br(total_carteira_investido))
+            col_c2.metric("Valor Atual", formata_br(total_carteira_atual))
+            
+            # Formata a porcentagem trocando o ponto pela vírgula (ex: +2,50%)
+            col_c3.metric("Evolução", f"{evolucao_total_carteira:+.2f}%".replace('.', ','))
             
             st.markdown("---")
             
@@ -68,10 +69,14 @@ def render():
                 for cat in carteira_agrupada['Categoria'].unique():
                     with st.expander(f"📁 {cat}", expanded=False): 
                         df_exibicao = carteira_agrupada[carteira_agrupada['Categoria'] == cat][['Ativo', 'Quantidade', 'PrecoMedio', 'PrecoAtual', 'TotalAtual', 'EvolucaoPct']].copy()
-                        df_exibicao['PrecoMedio'] = df_exibicao['PrecoMedio'].map('R$ {:,.2f}'.format)
-                        df_exibicao['PrecoAtual'] = df_exibicao['PrecoAtual'].map('R$ {:,.2f}'.format)
-                        df_exibicao['TotalAtual'] = df_exibicao['TotalAtual'].map('R$ {:,.2f}'.format)
-                        df_exibicao['EvolucaoPct'] = df_exibicao['EvolucaoPct'].map('{:+.2f}%'.format)
+                        
+                        # Formata a tabela no padrão brasileiro
+                        df_exibicao['Quantidade'] = df_exibicao['Quantidade'].map('{:,.4f}'.format).str.replace(',', 'X').str.replace('.', ',').str.replace('X', '.').str.rstrip('0').str.rstrip(',')
+                        df_exibicao['PrecoMedio'] = df_exibicao['PrecoMedio'].apply(formata_br)
+                        df_exibicao['PrecoAtual'] = df_exibicao['PrecoAtual'].apply(formata_br)
+                        df_exibicao['TotalAtual'] = df_exibicao['TotalAtual'].apply(formata_br)
+                        df_exibicao['EvolucaoPct'] = df_exibicao['EvolucaoPct'].map('{:+.2f}%'.format).str.replace('.', ',')
+                        
                         st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum investimento encontrado.")
