@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils import ler_planilha
+from utils import ler_planilha, obter_cotacoes
 
 def render():
     st.title("📊 Resumo Geral da Carteira")
@@ -18,7 +18,14 @@ def render():
             dados_usuario['Quantidade'] = pd.to_numeric(dados_usuario['Quantidade'], errors='coerce').fillna(0)
             dados_usuario['PrecoMedio'] = pd.to_numeric(dados_usuario['PrecoMedio'], errors='coerce').fillna(0)
             dados_usuario['PrecoAtual'] = pd.to_numeric(dados_usuario['PrecoAtual'], errors='coerce').fillna(0)
-            
+
+            # --- NOVO: BUSCANDO COTAÇÕES AO VIVO ---
+            cotacoes_dict = obter_cotacoes()
+            dados_usuario['PrecoCotacao'] = dados_usuario['Ativo'].map(cotacoes_dict)
+            # Combina: usa a cotação da aba "Cotacao", se não achar, usa o PrecoAtual antigo, se não, 0.
+            dados_usuario['PrecoAtual'] = pd.to_numeric(dados_usuario['PrecoCotacao']).combine_first(dados_usuario['PrecoAtual']).fillna(0)
+            # --------------------------------------
+
             dados_usuario['TotalInvestido'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
             dados_usuario['TotalAtual'] = dados_usuario['Quantidade'] * dados_usuario['PrecoAtual']
             
