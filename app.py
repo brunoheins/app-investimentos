@@ -437,18 +437,28 @@ else:
                 df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
                 df_inicial = df_cat_salvo
 
-            # 1. Aplica o estilo para centralizar o texto das células e dos cabeçalhos
-            df_estilizado = df_inicial.style.set_properties(**{'text-align': 'center'}).set_table_styles([
-                {'selector': 'th', 'props': [('text-align', 'center')]}
-            ])
-
-            # 2. Passa o dataframe 'df_estilizado' para o editor
+            # Editor de dados interativo configurado para melhor UX
             df_editado = st.data_editor(
-                df_estilizado, 
+                df_inicial,
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=True, 
-                key=f"editor_cat_{cat_selecionada}"
+                key=f"editor_cat_{cat_selecionada}",
+                column_config={
+                    "Ativo": st.column_config.TextColumn(
+                        "Ativo (Ticker)",
+                        width="large",     # Deixa a coluna do nome mais larga
+                        required=True      # Impede que o usuário deixe vazio
+                    ),
+                    "Peso (%)": st.column_config.NumberColumn(
+                        "Peso (%)",
+                        width="medium",    # Aproxima a coluna numérica do texto
+                        min_value=0.0,     # Impede números negativos
+                        max_value=100.0,   # Impede passar de 100%
+                        step=0.5,          # Os botões de seta pulam de 0.5 em 0.5
+                        format="%.2f"      # Força a exibição com 2 casas decimais (ex: 15.50)
+                    )
+                }
             )
 
             # Cálculo em tempo real da soma dos pesos
