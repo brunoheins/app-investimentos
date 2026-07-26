@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from utils import ler_planilha
+from utils import ler_planilha, obter_cotacoes
 
 # Função auxiliar para formatar moeda no padrão BR
 def formata_br(valor):
@@ -108,6 +108,12 @@ def render():
             df_calc['TotalAtual'] = df_calc['TotalAtual'].fillna(0)
             df_calc['PrecoAtual'] = df_calc['PrecoAtual'].fillna(0)
             
+            # --- NOVO: ATUALIZANDO PREÇOS COM A ABA COTAÇÃO ---
+            cotacoes_dict = obter_cotacoes()
+            df_calc['PrecoCotacao'] = df_calc['Ativo'].map(cotacoes_dict)
+            df_calc['PrecoAtual'] = pd.to_numeric(df_calc['PrecoCotacao']).combine_first(df_calc['PrecoAtual']).fillna(0)
+            # ---------------------------------------------------
+
             # Guardamos o total original para calcular com precisão a "Qtd Faltante" depois
             df_calc['TotalAtual_Original'] = df_calc['TotalAtual'].copy()
             df_calc['ValorAlvo'] = df_calc['PesoGlobal'] * total_futuro
