@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils import ler_planilha, registrar_deposito, registrar_compra
+from utils import ler_planilha, registrar_deposito, registrar_compra, obter_cotacoes
 
 def render():
     st.title("📝 Central de Lançamentos")
@@ -38,36 +38,44 @@ def render():
     # ==========================================
     elif tipo_lancamento == "🛒 2. Compra de Ativos":
         st.subheader("Registrar Compra")
-        st.info("Registre aqui a compra de ativos. Lembre-se: os dividendos que caem na conta viram compras aqui, mas NÃO são depósitos!")
+        st.info("Só é possível registrar compras de ativos que já estejam cadastrados na sua aba 'Cotacao'.")
         
-        # Puxa categorias e ativos cadastrados para facilitar o input
-        df_ativos = ler_planilha("Ativos_Config")
-        if df_ativos.empty:
-            st.error("Cadastre seus ativos na aba 'Configuração da Carteira' primeiro.")
+        # 1. BUSCA A LISTA DE ATIVOS PERMITIDOS (DA ABA COTAÇÃO)
+        cotacoes_dict = obter_cotacoes()
+        ativos_permitidos = sorted(list(cotacoes_dict.keys()))
+        
+        if not ativos_permitidos:
+            st.error("⚠️ Nenhum ativo encontrado na aba 'Cotacao'. Por favor, cadastre os ativos e os preços atuais na planilha antes de registrar uma compra.")
             return
-            
-        df_ativos['Email'] = df_ativos['Email'].astype(str).str.strip().str.lower()
-        df_user_ativos = df_ativos[df_ativos['Email'] == st.session_state.email]
+
+        # 2. BUSCA AS CATEGORIAS PARA O MENU
+        df_ativos = ler_planilha("Ativos_Config")
+        categorias_disp = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
         
-        categorias_disp = df_user_ativos['Categoria'].unique().tolist() if not df_user_ativos.empty else ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
+        if not df_ativos.empty:
+            df_ativos['Email'] = df_ativos['Email'].astype(str).str.strip().str.lower()
+            df_user_ativos = df_ativos[df_ativos['Email'] == st.session_state.email]
+            if not df_user_ativos.empty:
+                categorias_disp = df_user_ativos['Categoria'].unique().tolist()
 
         with st.form("form_compra", clear_on_submit=True):
             c1, c2, c3 = st.columns([1, 1, 1.5])
             data_compra = c1.date_input("Data da Compra", value=datetime.today(), format="DD/MM/YYYY")
             cat_compra = c2.selectbox("Categoria", categorias_disp)
             
-            # Aqui permitimos digitar caso seja um ativo novo, ou usar os existentes
-            ativo_compra = c3.text_input("Ativo (Ticker)", placeholder="Ex: MXRF11, AAPL34...")
+            # 3. MUDANÇA AQUI: Dropdown pesquisável com a lista oficial da Cotação
+            ativo_compra = c3.selectbox("Ativo (Digite para buscar)", options=ativos_permitidos)
             
             c4, c5 = st.columns(2)
-            qtd_compra = c4.number_input("Quantidade (Cotas)", min_value=0.0001, step=1.0, format="%.4f")
+            qtd_compra = c4.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
             preco_compra = c5.number_input("Preço Médio Pago (R$)", min_value=0.01, step=1.0, format="%.2f")
             
             submit_compra = st.form_submit_button("🛒 Registrar Compra", use_container_width=True)
             if submit_compra:
-                if not ativo_compra.strip():
-                    st.warning("Preencha o nome do ativo.")
+                if not ativo_compra:
+                    st.warning("Selecione um ativo válido.")
                 else:
                     data_str = data_compra.strftime("%d/%m/%Y")
-                    if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra.strip().upper(), qtd_compra, preco_compra):
-                        st.success(f"Compra de {qtd_compra}x {ativo_compra.upper()} salva com sucesso!")
+                    # Envia a compra para o banco de dados
+                    if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_compra, preco_compra):
+                        st.success(f"Compra de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
