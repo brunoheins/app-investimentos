@@ -6,7 +6,7 @@ from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 
 def render():
     st.title("📈 Evolução Real do Patrimônio")
-    st.markdown("Compare o **Dinheiro Novo Aportado** (Depósitos) com o **Valor de Mercado**. A diferença é a sua Rentabilidade Real (Valorização + Dividendos).")
+    st.markdown("Compare o **Dinheiro Novo Aportado** (Depósitos) com o **Valor de Mercado**.")
 
     with st.spinner("Construindo linha do tempo da sua carteira..."):
         
@@ -40,11 +40,8 @@ def render():
                 df_user_inv['Ativo'] = df_user_inv['Ativo'].astype(str).str.strip().str.upper()
                 df_user_inv['Quantidade'] = df_user_inv['Quantidade'].apply(extrair_numero_br)
                 
-                # --- AQUI É ONDE O ERRO OCORRIA ---
-                # A coluna 'PrecoAtual' não é mais chamada. Lemos o preço ao vivo direto da aba Cotação.
                 cotacoes_dict = obter_cotacoes()
                 df_user_inv['PrecoLive'] = df_user_inv['Ativo'].map(cotacoes_dict).fillna(0.0)
-                # --------------------------------------------------
                 
                 df_user_inv['MesAno'] = df_user_inv['DataCompra'].dt.strftime('%Y-%m')
                 df_inv_agrupado = df_user_inv.groupby(['MesAno', 'Ativo']).agg({
@@ -57,7 +54,7 @@ def render():
             df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'PrecoLive'])
 
         if df_dep_agrupado.empty and df_inv_agrupado.empty:
-            st.info("Registre depósitos e compras na aba '📝 Lançamentos' para ver a evolução do seu patrimônio ao longo do tempo.")
+            st.info("Registre depósitos e compras na aba '📝 Lançamentos' para ver a evolução do seu patrimônio.")
             return
 
         # --- 3. CRIAR A LINHA DO TEMPO CONTÍNUA ---
@@ -66,7 +63,6 @@ def render():
         
         todos_meses = sorted(list(set(meses_dep + meses_inv)))
         
-        # Prevenção de erro caso todos_meses esteja vazio
         if todos_meses:
             mes_inicial = todos_meses[0]
         else:
@@ -77,7 +73,7 @@ def render():
         range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_atual}-01", freq='MS').strftime('%Y-%m').tolist()
         df_timeline = pd.DataFrame({'MesAno': range_meses})
         
-        # --- 4. CALCULAR DEPÓSITOS ACUMULADOS (ESCADINHA) ---
+        # --- 4. CALCULAR DEPÓSITOS ACUMULADOS ---
         df_timeline = pd.merge(df_timeline, df_dep_agrupado, on='MesAno', how='left')
         df_timeline['Valor'] = df_timeline['Valor'].fillna(0)
         df_timeline['TotalAportado'] = df_timeline['Valor'].cumsum()
