@@ -148,7 +148,7 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         return False
 
 def obter_cotacoes():
-    """Lê a aba Cotacao e retorna um dicionário com todos os preços unificados"""
+    """Lê a aba Cotacao (múltiplas colunas) e retorna um dicionário unificado com todos os preços"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -156,27 +156,59 @@ def obter_cotacoes():
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Cotacao")
         
-        # Lê tudo como texto puro
         valores = sheet.get_all_values()
-        
         cotacoes = {}
         if len(valores) > 1:
+            # Índices das colunas de Ativo e Preço: A/B(0,1), C/D(2,3), E/F(4,5), G/H(6,7), I/J(8,9), K/L(10,11)
+            pares = [(0,1), (2,3), (4,5), (6,7), (8,9), (10,11)]
             for linha in valores[1:]:
-                # Colunas A e B
-                if len(linha) >= 2:
-                    ativo = str(linha[0]).strip().upper()
-                    preco = extrair_numero_br(linha[1])
-                    if ativo and preco > 0:
-                        cotacoes[ativo] = preco
-                
-                # Colunas E e F (IPCA)
-                if len(linha) >= 6:
-                    ipca_titulo = str(linha[4]).strip().upper()
-                    preco_ipca = extrair_numero_br(linha[5])
-                    if ipca_titulo and preco_ipca > 0:
-                        cotacoes[ipca_titulo] = preco_ipca
-                        
+                for i_ativo, i_preco in pares:
+                    if len(linha) > i_preco: # Garante que a planilha tem essa coluna preenchida
+                        ativo = str(linha[i_ativo]).strip().upper()
+                        preco = extrair_numero_br(linha[i_preco])
+                        if ativo and preco > 0:
+                            cotacoes[ativo] = preco
         return cotacoes
+    except Exception as e:
+        return {}
+
+def obter_ativos_por_categoria():
+    """Lê a aba Cotacao e agrupa os ativos de acordo com a sua coluna de origem"""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = json.loads(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open("App_Investimentos").worksheet("Cotacao")
+        
+        valores = sheet.get_all_values()
+        
+        # Mapeia o índice da coluna da planilha para o nome da Categoria no App
+        # IPCA (Coluna E = Índice 4) vira "Renda Fixa" no sistema
+        mapa_colunas = {
+            0: "Ações", 
+            2: "FIIs", 
+            4: "Renda Fixa", 
+            6: "Stocks", 
+            8: "REITs", 
+            10: "ETFs"
+        }
+        
+        cat_dict = {cat: [] for cat in mapa_colunas.values()}
+        
+        if len(valores) > 1:
+            for linha in valores[1:]:
+                for idx, cat in mapa_colunas.items():
+                    if len(linha) > idx:
+                        ativo = str(linha[idx]).strip().upper()
+                        if ativo and ativo != "NAN" and ativo not in cat_dict[cat]:
+                            cat_dict[cat].append(ativo)
+                            
+        # Ordena em ordem alfabética para ficar fácil de achar no menu
+        for cat in cat_dict:
+            cat_dict[cat].sort()
+            
+        return cat_dict
     except Exception as e:
         return {}
 
