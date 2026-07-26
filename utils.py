@@ -4,25 +4,36 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-def extrair_numero_br(valor_str):
-    """Lê textos do Sheets no padrão BR e converte para número real no Python"""
-    if pd.isna(valor_str):
+def extrair_numero_br(valor):
+    """Converte strings de planilhas para float lidando com formatos BR e US automaticamente"""
+    if pd.isna(valor) or valor == '' or valor is None:
         return 0.0
-    if isinstance(valor_str, (int, float)):
-        return float(valor_str)
     
-    v = str(valor_str).replace('R$', '').replace('%', '').strip()
-    if v == '' or v.lower() == 'nan':
+    if isinstance(valor, (int, float)):
+        return float(valor)
+        
+    # Limpa R$, símbolos e espaços em branco
+    v = str(valor).upper().replace('R$', '').replace('%', '').strip()
+    
+    if not v:
         return 0.0
         
-    # Se tem vírgula, é padrão brasileiro (ex: 1.500,50)
-    if ',' in v:
-        v = v.replace('.', '')    # Remove os pontos de milhar
-        v = v.replace(',', '.')   # Transforma a vírgula em ponto
+    # Se o número tem Ponto e Vírgula (ex: 1.250,50 ou 1,250.50)
+    if '.' in v and ',' in v:
+        if v.rfind(',') > v.rfind('.'):
+            # Formato Brasileiro (1.250,50) -> Remove ponto, troca vírgula por ponto
+            v = v.replace('.', '').replace(',', '.')
+        else:
+            # Formato Americano (1,250.50) -> Remove vírgula
+            v = v.replace(',', '')
+            
+    # Se só tem Vírgula (ex: 295,17) -> Assume que é decimal brasileiro
+    elif ',' in v:
+        v = v.replace(',', '.')
         
     try:
         return float(v)
-    except:
+    except ValueError:
         return 0.0
 
 def formata_br(valor):
