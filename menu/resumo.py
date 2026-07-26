@@ -15,14 +15,15 @@ def render():
             dados_usuario['Ativo'] = dados_usuario['Ativo'].astype(str).str.strip().str.upper()
             dados_usuario['Categoria'] = dados_usuario['Categoria'].astype(str).str.strip()
             
-            # Aplica a inteligência de conversão brasileira
+            # Aplica a inteligência de conversão brasileira APENAS nas colunas que existem
             dados_usuario['Quantidade'] = dados_usuario['Quantidade'].apply(extrair_numero_br)
             dados_usuario['PrecoMedio'] = dados_usuario['PrecoMedio'].apply(extrair_numero_br)
-            dados_usuario['PrecoAtual'] = dados_usuario['PrecoAtual'].apply(extrair_numero_br)
             
+            # --- CORREÇÃO: CRIA O PREÇO ATUAL DIRETO DA ABA COTAÇÃO ---
             cotacoes_dict = obter_cotacoes()
-            dados_usuario['PrecoCotacao'] = dados_usuario['Ativo'].map(cotacoes_dict)
-            dados_usuario['PrecoAtual'] = pd.to_numeric(dados_usuario['PrecoCotacao']).combine_first(dados_usuario['PrecoAtual']).fillna(0)
+            # Mapeia o nome do ativo para o preço. Se não encontrar, preenche com zero.
+            dados_usuario['PrecoAtual'] = dados_usuario['Ativo'].map(cotacoes_dict).fillna(0.0)
+            # ------------------------------------------------------------
             
             dados_usuario['TotalInvestido'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
             dados_usuario['TotalAtual'] = dados_usuario['Quantidade'] * dados_usuario['PrecoAtual']
