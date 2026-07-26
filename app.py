@@ -7,12 +7,46 @@ import plotly.express as px
 
 st.set_page_config(page_title="App Investimentos v1.0", layout="wide")
 
-# CSS Customizado para otimizar espaço em telas de 14" (Laptops)
+# CSS Customizado para otimizar espaço e estilizar as Abas (Tabs)
 st.markdown("""
     <style>
+        /* Reduz o espaço em branco inútil no topo e na base */
         .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
+        }
+        
+        /* 1. Estilizando as abas inativas para parecerem botões com contorno */
+        button[data-baseweb="tab"] {
+            border: 1px solid #6c757d !important; /* Contorno cinza suave */
+            border-radius: 8px !important; /* Bordas arredondadas */
+            margin-right: 8px !important; /* Espaço entre os botões */
+            padding: 8px 16px !important; /* Espaçamento interno */
+            background-color: transparent !important;
+            transition: all 0.3s ease !important; /* Transição suave */
+        }
+        
+        /* 2. Efeito ao passar o mouse (Hover) nas abas inativas */
+        button[data-baseweb="tab"]:hover {
+            border-color: #ff4b4b !important;
+            color: #ff4b4b !important;
+            background-color: rgba(255, 75, 75, 0.05) !important;
+        }
+        
+        /* 3. Estilizando a aba ATIVA (Selecionada) */
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background-color: #ff4b4b !important; /* Cor de fundo (Vermelho padrão Streamlit) */
+            color: white !important; /* Texto branco */
+            border-color: #ff4b4b !important;
+            font-weight: bold !important;
+        }
+        
+        /* 4. Escondendo as linhas nativas sublinhadas do Streamlit */
+        div[data-baseweb="tab-highlight"] {
+            display: none !important;
+        }
+        div[data-baseweb="tab-border"] {
+            display: none !important;
         }
     </style>
 """, unsafe_allow_html=True)
