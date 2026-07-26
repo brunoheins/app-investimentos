@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils import ler_planilha, registrar_deposito, registrar_compra, obter_cotacoes
+from utils import ler_planilha, registrar_deposito, registrar_compra, obter_ativos_por_categoria
 
 def render():
     st.title("📝 Central de Lançamentos")
     st.markdown("Registre a entrada de dinheiro novo na corretora e as suas ordens de compra.")
 
-    # Navegação interna
     tipo_lancamento = st.pills(
         "O que você deseja registrar?",
         ["💰 1. Depósito de Dinheiro (Aporte)", "🛒 2. Compra de Ativos"],
@@ -34,48 +33,36 @@ def render():
                     st.success(f"Depósito de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
 
     # ==========================================
-    # 2. COMPRA DE ATIVOS
+    # 2. COMPRA DE ATIVOS (AGORA DINÂMICO E SEGURO)
     # ==========================================
     elif tipo_lancamento == "🛒 2. Compra de Ativos":
         st.subheader("Registrar Compra")
-        st.info("Só é possível registrar compras de ativos que já estejam cadastrados na sua aba 'Cotacao'.")
+        st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
-        # 1. BUSCA A LISTA DE ATIVOS PERMITIDOS (DA ABA COTAÇÃO)
-        cotacoes_dict = obter_cotacoes()
-        ativos_permitidos = sorted(list(cotacoes_dict.keys()))
-        
-        if not ativos_permitidos:
-            st.error("⚠️ Nenhum ativo encontrado na aba 'Cotacao'. Por favor, cadastre os ativos e os preços atuais na planilha antes de registrar uma compra.")
-            return
+        # Busca o dicionário onde as chaves são as Categorias e os valores são as listas de Ativos
+        cat_ativos_dict = obter_ativos_por_categoria()
+        categorias_disp = list(cat_ativos_dict.keys())
 
-        # 2. BUSCA AS CATEGORIAS PARA O MENU
-        df_ativos = ler_planilha("Ativos_Config")
-        categorias_disp = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
+        # Seleção de Categoria e Ativo ficam FORA de um st.form para atualizarem em tempo real
+        c_cat, c_atv = st.columns(2)
+        cat_compra = c_cat.selectbox("1. Escolha a Categoria", categorias_disp)
         
-        if not df_ativos.empty:
-            df_ativos['Email'] = df_ativos['Email'].astype(str).str.strip().str.lower()
-            df_user_ativos = df_ativos[df_ativos['Email'] == st.session_state.email]
-            if not df_user_ativos.empty:
-                categorias_disp = df_user_ativos['Categoria'].unique().tolist()
-
-        with st.form("form_compra", clear_on_submit=True):
-            c1, c2, c3 = st.columns([1, 1, 1.5])
+        # Puxa apenas a coluna correspondente da planilha Cotacao
+        ativos_da_categoria = cat_ativos_dict.get(cat_compra, [])
+        
+        if not ativos_da_categoria:
+            c_atv.error(f"Nenhum ativo preenchido para '{cat_compra}' na aba Cotacao.")
+            ativo_compra = None
+        else:
+            ativo_compra = c_atv.selectbox("2. Escolha o Ativo (Digite para buscar)", options=ativos_da_categoria)
+            
+            st.markdown("---")
+            c1, c2, c3 = st.columns(3)
             data_compra = c1.date_input("Data da Compra", value=datetime.today(), format="DD/MM/YYYY")
-            cat_compra = c2.selectbox("Categoria", categorias_disp)
+            qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
+            preco_compra = c3.number_input("Preço Médio Pago (R$)", min_value=0.01, step=1.0, format="%.2f")
             
-            # 3. MUDANÇA AQUI: Dropdown pesquisável com a lista oficial da Cotação
-            ativo_compra = c3.selectbox("Ativo (Digite para buscar)", options=ativos_permitidos)
-            
-            c4, c5 = st.columns(2)
-            qtd_compra = c4.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
-            preco_compra = c5.number_input("Preço Médio Pago (R$)", min_value=0.01, step=1.0, format="%.2f")
-            
-            submit_compra = st.form_submit_button("🛒 Registrar Compra", use_container_width=True)
-            if submit_compra:
-                if not ativo_compra:
-                    st.warning("Selecione um ativo válido.")
-                else:
-                    data_str = data_compra.strftime("%d/%m/%Y")
-                    # Envia a compra para o banco de dados
-                    if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_compra, preco_compra):
-                        st.success(f"Compra de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
+            if st.button("🛒 Registrar Compra", use_container_width=True):
+                data_str = data_compra.strftime("%d/%m/%Y")
+                if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_compra, preco_compra):
+                    st.success(f"Compra de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
