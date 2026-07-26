@@ -2,6 +2,17 @@ import streamlit as st
 import pandas as pd
 from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 
+def normalizar_categoria(cat_str):
+    """Tradutor Universal para garantir que o algoritmo não se confunda com sinônimos"""
+    c = str(cat_str).strip().upper()
+    if c in ["IPCA", "RF", "RENDA FIXA"]: return "Renda Fixa"
+    if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: return "Ações"
+    if c in ["FIIS", "FII"]: return "FIIs"
+    if c in ["STOCKS", "STOCK"]: return "Stocks"
+    if c in ["REITS", "REIT"]: return "REITs"
+    if c in ["ETFS", "ETF"]: return "ETFs"
+    return str(cat_str).strip()
+
 def motor_de_aportes(email, valor_aporte, num_compras):
     """Cérebro matemático: Calcula as recomendações de compra. Pode ser importado por outras telas."""
     df_conf = ler_planilha("Configuracao")
@@ -20,6 +31,7 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     peso_br = float(user_conf.get('RV_Brasil', 50)) / 100.0
     peso_ex = float(user_conf.get('RV_Exterior', 50)) / 100.0
 
+    # Metas absolutas do usuário
     cat_targets = {
         "Renda Fixa": float(user_conf.get('RF', 50)) / 100.0,
         "Ações": peso_rv * peso_br * (float(user_conf.get('BR_Acoes', 50)) / 100.0),
@@ -32,9 +44,10 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     df_ativos_conf['Email'] = df_ativos_conf['Email'].astype(str).str.strip().str.lower()
     df_user_ativos = df_ativos_conf[df_ativos_conf['Email'] == email].copy()
 
+    # --- 1. LER ATIVOS ALVO E NORMALIZAR ---
     ativos_alvos = []
     for _, row in df_user_ativos.iterrows():
-        cat = str(row['Categoria']).strip()
+        cat = normalizar_categoria(row['Categoria']) # <- Passa pelo tradutor
         ativo = str(row['Ativo']).strip().upper()
         val_peso = row.get('Peso') if pd.notna(row.get('Peso')) else row.get('Peso (%)', 0)
         peso_global = cat_targets.get(cat, 0) * (float(val_peso) / 100.0)
@@ -42,21 +55,24 @@ def motor_de_aportes(email, valor_aporte, num_compras):
             ativos_alvos.append({'Categoria': cat, 'Ativo': ativo, 'PesoGlobal': peso_global})
 
     df_alvos = pd.DataFrame(ativos_alvos)
+    
+    # --- 2. LER CARTEIRA ATUAL E NORMALIZAR ---
     df_carteira = pd.DataFrame(columns=['Categoria', 'Ativo', 'TotalAtual', 'PrecoAtual'])
     
     if not df_invest.empty and 'Email' in df_invest.columns:
         df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
         df_user_invest = df_invest[df_invest['Email'] == email].copy()
+        
         if not df_user_invest.empty:
             df_user_invest['Ativo'] = df_user_invest['Ativo'].astype(str).str.strip().str.upper()
-            df_user_invest['Categoria'] = df_user_invest['Categoria'].astype(str).str.strip()
+            
+            # <- Passa pelo tradutor para garantir que IPCA vire Renda Fixa e a conta bata perfeitamente
+            df_user_invest['Categoria'] = df_user_invest['Categoria'].apply(normalizar_categoria) 
+            
             df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(extrair_numero_br)
             
-            # --- CORREÇÃO AQUI: BUSCA DIRETO DA ABA COTAÇÃO ---
             cotacoes_dict = obter_cotacoes()
             df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict).fillna(0.0)
-            # --------------------------------------------------
-            
             df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoLive']
 
             df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
@@ -65,6 +81,7 @@ def motor_de_aportes(email, valor_aporte, num_compras):
             }).reset_index()
             df_carteira.rename(columns={'PrecoLive': 'PrecoAtual'}, inplace=True)
 
+    # --- 3. MATEMÁTICA DE APORTES (O CRUZAMENTO AGORA FUNCIONA) ---
     total_atual = df_carteira['TotalAtual'].sum() if not df_carteira.empty else 0
     total_futuro = total_atual + valor_aporte 
     
