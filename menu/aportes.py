@@ -51,11 +51,12 @@ def motor_de_aportes(email, valor_aporte, num_compras):
             df_user_invest['Ativo'] = df_user_invest['Ativo'].astype(str).str.strip().str.upper()
             df_user_invest['Categoria'] = df_user_invest['Categoria'].astype(str).str.strip()
             df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(extrair_numero_br)
-            df_user_invest['PrecoAtual_Planilha'] = df_user_invest['PrecoAtual'].apply(extrair_numero_br)
             
+            # --- CORREÇÃO AQUI: BUSCA DIRETO DA ABA COTAÇÃO ---
             cotacoes_dict = obter_cotacoes()
-            df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict)
-            df_user_invest['PrecoLive'] = pd.to_numeric(df_user_invest['PrecoLive']).combine_first(df_user_invest['PrecoAtual_Planilha']).fillna(0)
+            df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict).fillna(0.0)
+            # --------------------------------------------------
+            
             df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoLive']
 
             df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
@@ -138,6 +139,7 @@ def motor_de_aportes(email, valor_aporte, num_compras):
         aporte_restante -= valor_alocado
 
     return compras, aporte_restante, None
+
 
 def render():
     st.title("🎯 Guia de Aportes Inteligente")
