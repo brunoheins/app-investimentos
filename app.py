@@ -16,7 +16,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Importando as telas moduladas
-from menus import resumo, saldo, aportes, configuracao
+from menu import resumo, saldo, aportes, configuracao
 
 # Controle de estado do Login
 if 'logado' not in st.session_state:
