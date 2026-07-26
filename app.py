@@ -15,8 +15,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Importando as telas moduladas
-from menu import resumo, saldo, aportes, configuracao
+# Importando as telas moduladas (Agora incluindo 'lancamentos')
+from menu import resumo, saldo, aportes, configuracao, lancamentos
 
 # Controle de estado do Login
 if 'logado' not in st.session_state:
@@ -62,9 +62,16 @@ else:
     st.sidebar.write(f"👤 Usuário: **{st.session_state.nome}**")
     st.sidebar.markdown("---")
     
+    # Adicionando o "📝 Lançamentos" nas opções da barra lateral
     menu_selecionado = st.sidebar.radio(
         "Navegação / Painéis:",
-        ["💼 Resumo da Aplicação", "📈 Evolução do Saldo", "🎯 Guia de Aportes", "⚙️ Configuração da Carteira"]
+        [
+            "💼 Resumo da Aplicação", 
+            "📈 Evolução do Saldo", 
+            "🎯 Guia de Aportes", 
+            "📝 Lançamentos", 
+            "⚙️ Configuração da Carteira"
+        ]
     )
     
     st.sidebar.markdown("---")
@@ -81,6 +88,9 @@ else:
         
     elif menu_selecionado == "🎯 Guia de Aportes":
         aportes.render()
+        
+    elif menu_selecionado == "📝 Lançamentos":
+        lancamentos.render()
         
     elif menu_selecionado == "⚙️ Configuração da Carteira":
         configuracao.render()
