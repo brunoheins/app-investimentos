@@ -51,7 +51,7 @@ def salvar_configuracao(email, dados_dict):
         st.error(f"Erro ao salvar na planilha: {e}")
         return False
 
-# Função para Salvar os ativos de uma categoria específica
+# Função para Salvar os ativos de uma categoria específica (Corrigida)
 def salvar_ativos_categoria(email, categoria, df_ativos):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -79,8 +79,13 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         # Adiciona as novas linhas da tabela editada
         novas_linhas = []
         for _, row in df_ativos.iterrows():
-            ativo = str(row['Ativo']).strip().upper()
-            peso = float(row['Peso (%)'] or 0)
+            ativo = str(row.get('Ativo', '')).strip().upper()
+            
+            # Identifica dinamicamente se a coluna se chama 'Peso' ou 'Peso (%)'
+            col_peso = 'Peso' if 'Peso' in df_ativos.columns else 'Peso (%)'
+            val_peso = row.get(col_peso, 0)
+            peso = float(val_peso) if pd.notna(val_peso) and str(val_peso).strip() != '' else 0.0
+            
             if ativo and ativo != "NAN":
                 novas_linhas.append([email, categoria, ativo, peso])
                 
