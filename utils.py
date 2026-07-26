@@ -4,6 +4,34 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
+def extrair_numero_br(valor_str):
+    """Lê textos do Sheets no padrão BR e converte para número real no Python"""
+    if pd.isna(valor_str):
+        return 0.0
+    if isinstance(valor_str, (int, float)):
+        return float(valor_str)
+    
+    v = str(valor_str).replace('R$', '').replace('%', '').strip()
+    if v == '' or v.lower() == 'nan':
+        return 0.0
+        
+    # Se tem vírgula, é padrão brasileiro (ex: 1.500,50)
+    if ',' in v:
+        v = v.replace('.', '')    # Remove os pontos de milhar
+        v = v.replace(',', '.')   # Transforma a vírgula em ponto
+        
+    try:
+        return float(v)
+    except:
+        return 0.0
+
+def formata_br(valor):
+    """Gera visualização de dinheiro no padrão BR"""
+    try:
+        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "R$ 0,00"
+
 def ler_planilha(aba_nome):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -11,7 +39,27 @@ def ler_planilha(aba_nome):
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet(aba_nome)
-        return pd.DataFrame(sheet.get_all_records())
+        
+        # SOLUÇÃO: Lê o texto exato para evitar que a biblioteca americana engula nossas vírgulas
+        valores = sheet.get_all_values()
+        if not valores:
+            return pd.DataFrame()
+        
+        # Constrói a tabela
+        df = pd.DataFrame(valores[1:], columns=valores[0])
+        
+        # Força a conversão BR apenas nas colunas que sabemos que são números
+        colunas_numericas = [
+            'Quantidade', 'PrecoMedio', 'PrecoAtual', 'Valor', 'Peso', 'Peso (%)',
+            'RF', 'RV', 'RV_Brasil', 'RV_Exterior', 
+            'BR_Acoes', 'BR_FIIs', 'EX_Stocks', 'EX_REITs', 'EX_ETFs'
+        ]
+        
+        for col in df.columns:
+            if col in colunas_numericas:
+                df[col] = df[col].apply(extrair_numero_br)
+                
+        return df
     except Exception as e:
         if aba_nome == "Ativos_Config":
             return pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
@@ -26,7 +74,10 @@ def salvar_configuracao(email, dados_dict):
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Configuracao")
         
-        df = pd.DataFrame(sheet.get_all_records())
+        # Proteção extra na hora de ler para encontrar o usuário
+        valores = sheet.get_all_values()
+        df = pd.DataFrame(valores[1:], columns=valores[0]) if len(valores) > 1 else pd.DataFrame(columns=["Email"])
+        
         row_values = [
             email, dados_dict['RF'], dados_dict['RV'], 
             dados_dict['RV_Brasil'], dados_dict['RV_Exterior'], 
@@ -58,7 +109,12 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             sheet = client.open("App_Investimentos").add_worksheet(title="Ativos_Config", rows=100, cols=4)
             sheet.append_row(["Email", "Categoria", "Ativo", "Peso"])
             
-        df_all = pd.DataFrame(sheet.get_all_records())
+        # Proteção na leitura dos ativos velhos
+        valores = sheet.get_all_values()
+        if valores:
+            df_all = pd.DataFrame(valores[1:], columns=valores[0])
+        else:
+            df_all = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso"])
         
         if not df_all.empty and 'Email' in df_all.columns:
             df_all['Email'] = df_all['Email'].astype(str).str.strip().str.lower()
@@ -91,34 +147,6 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         st.error(f"Erro ao salvar ativos: {e}")
         return False
 
-def extrair_numero_br(valor_str):
-    """Lê números do Sheets no padrão BR e converte para Float do Python"""
-    if pd.isna(valor_str):
-        return 0.0
-    if isinstance(valor_str, (int, float)):
-        return float(valor_str)
-    
-    v = str(valor_str).replace('R$', '').replace('%', '').strip()
-    if v == '' or v.lower() == 'nan':
-        return 0.0
-        
-    # Se tem vírgula, é padrão brasileiro (ex: 1.500,50)
-    if ',' in v:
-        v = v.replace('.', '')    # Remove os pontos de milhar
-        v = v.replace(',', '.')   # Transforma a vírgula em ponto (padrão Python)
-        
-    try:
-        return float(v)
-    except:
-        return 0.0
-
-def formata_br(valor):
-    """Recebe um float do Python e devolve uma string R$ no padrão BR (ex: R$ 1.500,50)"""
-    try:
-        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except:
-        return "R$ 0,00"
-
 def obter_cotacoes():
     """Lê a aba Cotacao e retorna um dicionário com todos os preços unificados"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -128,21 +156,20 @@ def obter_cotacoes():
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Cotacao")
         
-        # get_all_values() lê a planilha como uma matriz, evitando erros com colunas de mesmo nome
+        # Lê tudo como texto puro
         valores = sheet.get_all_values()
         
         cotacoes = {}
         if len(valores) > 1:
-            for linha in valores[1:]: # Pula o cabeçalho (linha 0)
-                
-                # Leitura Colunas A (0) e B (1) -> Ações, FIIs, Stocks, etc.
+            for linha in valores[1:]:
+                # Colunas A e B
                 if len(linha) >= 2:
                     ativo = str(linha[0]).strip().upper()
                     preco = extrair_numero_br(linha[1])
                     if ativo and preco > 0:
                         cotacoes[ativo] = preco
                 
-                # Leitura Colunas E (4) e F (5) -> IPCA / Títulos
+                # Colunas E e F (IPCA)
                 if len(linha) >= 6:
                     ipca_titulo = str(linha[4]).strip().upper()
                     preco_ipca = extrair_numero_br(linha[5])
@@ -151,5 +178,4 @@ def obter_cotacoes():
                         
         return cotacoes
     except Exception as e:
-        # Retorna vazio silenciosamente para não travar o app se a aba ainda não existir
         return {}
