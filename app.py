@@ -148,6 +148,8 @@ else:
                 st.subheader("Distribuição por Categoria")
                 df_categoria = carteira_agrupada.groupby('Categoria')['TotalAtual'].sum().reset_index()
                 fig = px.pie(df_categoria, values='TotalAtual', names='Categoria', hole=0.4)
+                # Adiciona o rótulo da categoria e a porcentagem no gráfico
+                fig.update_traces(textinfo='label+percent')
                 st.plotly_chart(fig, use_container_width=True)
                 
                 st.markdown("---")
@@ -302,22 +304,27 @@ else:
             
             # Montagem da tabela de Resumo
             df_resumo = pd.DataFrame({
-                "Categoria": ["Renda Fixa", "Ações (BR)", "FIIs (BR)", "Stocks (EX)", "REITs (EX)", "ETFs (EX)"],
+                "Categoria": ["Renda Fixa", "Ações", "FIIs", "Stocks", "REITs", "ETFs"],
                 "% Alvo Final": [rf_final, acoes_final, fiis_final, stocks_final, reits_final, etfs_final]
             })
             
-            # Formatando os números para visualização com o símbolo de %
+            # Filtrar valores zerados (para o gráfico não ficar com fatias de 0%)
+            df_resumo_grafico = df_resumo[df_resumo["% Alvo Final"] > 0]
+            
+            # Formatando os números para visualização na tabela
             df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].map('{:.2f}%'.format)
             
-            # Renderiza a tabela limpa sem índice (hide_index=True)
+            # Renderiza a tabela
             st.dataframe(df_resumo, use_container_width=True, hide_index=True)
             
-            # Plota um gráfico de rosca rápido para o resumo final!
+            # Plota um gráfico de rosca rápido para o resumo final
             fig_resumo = px.pie(
-                df_resumo, 
-                values=[rf_final, acoes_final, fiis_final, stocks_final, reits_final, etfs_final], 
+                df_resumo_grafico, 
+                values='% Alvo Final', 
                 names="Categoria", 
                 hole=0.5
             )
+            # Adiciona o rótulo e a porcentagem no gráfico
+            fig_resumo.update_traces(textinfo='label+percent')
             fig_resumo.update_layout(margin=dict(t=0, b=0, l=0, r=0), showlegend=False)
             st.plotly_chart(fig_resumo, use_container_width=True)
