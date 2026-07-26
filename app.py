@@ -7,13 +7,32 @@ import plotly.express as px
 
 st.set_page_config(page_title="App Investimentos v1.0", layout="wide")
 
-# CSS Customizado para otimizar espaço em telas de 14" (Laptops)
+# CSS Customizado para otimizar espaço e tipografia em telas de 14"
 st.markdown("""
     <style>
         /* Reduz o espaço em branco inútil no topo e na base */
         .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
+        }
+        
+        /* Reduz o tamanho de todos os Títulos (st.title) */
+        h1 {
+            font-size: 1.8rem !important;
+            padding-bottom: 0.5rem !important;
+        }
+        
+        /* Reduz o tamanho dos Subtítulos (st.header / st.subheader) */
+        h2 {
+            font-size: 1.5rem !important;
+        }
+        h3 {
+            font-size: 1.2rem !important;
+        }
+        
+        /* Ajusta o tamanho da fonte dentro dos Markdown comuns para ficar mais delicado */
+        p {
+            font-size: 0.95rem !important;
         }
     </style>
 """, unsafe_allow_html=True)
