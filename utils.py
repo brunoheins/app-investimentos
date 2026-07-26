@@ -90,3 +90,48 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
     except Exception as e:
         st.error(f"Erro ao salvar ativos: {e}")
         return False
+
+def extrair_numero_br(valor_str):
+    """Função auxiliar para limpar textos de moeda (R$ 1.500,50 -> 1500.50)"""
+    v = str(valor_str).replace('R$', '').strip()
+    if ',' in v:
+        v = v.replace('.', '').replace(',', '.')
+    try:
+        return float(v)
+    except:
+        return 0.0
+
+def obter_cotacoes():
+    """Lê a aba Cotacao e retorna um dicionário com todos os preços unificados"""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = json.loads(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open("App_Investimentos").worksheet("Cotacao")
+        
+        # get_all_values() lê a planilha como uma matriz, evitando erros com colunas de mesmo nome
+        valores = sheet.get_all_values()
+        
+        cotacoes = {}
+        if len(valores) > 1:
+            for linha in valores[1:]: # Pula o cabeçalho (linha 0)
+                
+                # Leitura Colunas A (0) e B (1) -> Ações, FIIs, Stocks, etc.
+                if len(linha) >= 2:
+                    ativo = str(linha[0]).strip().upper()
+                    preco = extrair_numero_br(linha[1])
+                    if ativo and preco > 0:
+                        cotacoes[ativo] = preco
+                
+                # Leitura Colunas E (4) e F (5) -> IPCA / Títulos
+                if len(linha) >= 6:
+                    ipca_titulo = str(linha[4]).strip().upper()
+                    preco_ipca = extrair_numero_br(linha[5])
+                    if ipca_titulo and preco_ipca > 0:
+                        cotacoes[ipca_titulo] = preco_ipca
+                        
+        return cotacoes
+    except Exception as e:
+        # Retorna vazio silenciosamente para não travar o app se a aba ainda não existir
+        return {}
