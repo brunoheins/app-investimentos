@@ -166,8 +166,8 @@ else:
     
     st.sidebar.markdown("---")
     if st.sidebar.button("Sair do App"):
-        st.session_state.logado = False
-        st.session_state.pop('config_inicializada', None)
+        # Limpa completamente o estado ao sair (Resolve bugs de cache)
+        st.session_state.clear()
         st.rerun()
 
     # --- TELA 1: RESUMO DA APLICAÇÃO ---
@@ -261,7 +261,29 @@ else:
     elif menu_selecionado == "⚙️ Configuração da Carteira":
         st.title("⚙️ Central de Configuração da Carteira")
         
-        # Novo estilo de navegação por botões (pills) em vez de abas normais
+        # 1. COFRE: Salva estado das metas de alocação
+        if 'backup_macro' not in st.session_state:
+            df_conf = ler_planilha("Configuracao")
+            user_conf = {}
+            if not df_conf.empty:
+                df_conf['Email'] = df_conf['Email'].astype(str).str.strip().str.lower()
+                row = df_conf[df_conf['Email'] == st.session_state.email]
+                if not row.empty:
+                    user_conf = row.iloc[0].to_dict()
+            
+            st.session_state.backup_macro = {
+                'rf': float(user_conf.get('RF', 50.0)),
+                'rv': float(user_conf.get('RV', 50.0)),
+                'rv_br': float(user_conf.get('RV_Brasil', 50.0)),
+                'rv_ex': float(user_conf.get('RV_Exterior', 50.0)),
+                'br_ac': float(user_conf.get('BR_Acoes', 50.0)),
+                'br_fii': float(user_conf.get('BR_FIIs', 50.0)),
+                'ex_st': float(user_conf.get('EX_Stocks', 40.0)),
+                'ex_re': float(user_conf.get('EX_REITs', 30.0)),
+                'ex_et': float(user_conf.get('EX_ETFs', 30.0))
+            }
+
+        # Navegação com estilo Botão (Pills)
         aba_selecionada = st.pills(
             "Selecione o painel de configuração:", 
             ["🎯 Metas de Alocação", "📋 Ativos e Pesos por Categoria"], 
@@ -275,25 +297,17 @@ else:
         if aba_selecionada == "🎯 Metas de Alocação":
             st.markdown("Ajuste seus percentuais macro. O sistema compensa automaticamente para a soma sempre cravar **100%**.")
 
-            if 'config_inicializada' not in st.session_state:
-                df_conf = ler_planilha("Configuracao")
-                user_conf = {}
-                if not df_conf.empty:
-                    df_conf['Email'] = df_conf['Email'].astype(str).str.strip().str.lower()
-                    row = df_conf[df_conf['Email'] == st.session_state.email]
-                    if not row.empty:
-                        user_conf = row.iloc[0].to_dict()
-                
-                st.session_state.rf_val = float(user_conf.get('RF', 50.0))
-                st.session_state.rv_val = float(user_conf.get('RV', 50.0))
-                st.session_state.rv_br_val = float(user_conf.get('RV_Brasil', 50.0))
-                st.session_state.rv_ex_val = float(user_conf.get('RV_Exterior', 50.0))
-                st.session_state.br_ac_val = float(user_conf.get('BR_Acoes', 50.0))
-                st.session_state.br_fii_val = float(user_conf.get('BR_FIIs', 50.0))
-                st.session_state.ex_st_val = float(user_conf.get('EX_Stocks', 40.0))
-                st.session_state.ex_re_val = float(user_conf.get('EX_REITs', 30.0))
-                st.session_state.ex_et_val = float(user_conf.get('EX_ETFs', 30.0))
-                st.session_state.config_inicializada = True
+            # 2. RESTAURA: Volta valores salvos do cofre se o Streamlit apagou
+            if 'rf_val' not in st.session_state:
+                st.session_state.rf_val = st.session_state.backup_macro['rf']
+                st.session_state.rv_val = st.session_state.backup_macro['rv']
+                st.session_state.rv_br_val = st.session_state.backup_macro['rv_br']
+                st.session_state.rv_ex_val = st.session_state.backup_macro['rv_ex']
+                st.session_state.br_ac_val = st.session_state.backup_macro['br_ac']
+                st.session_state.br_fii_val = st.session_state.backup_macro['br_fii']
+                st.session_state.ex_st_val = st.session_state.backup_macro['ex_st']
+                st.session_state.ex_re_val = st.session_state.backup_macro['ex_re']
+                st.session_state.ex_et_val = st.session_state.backup_macro['ex_et']
 
             def ajusta_macro(modificado):
                 if modificado == 'rf': st.session_state.rv_val = round(100.0 - st.session_state.rf_val, 2)
@@ -400,6 +414,19 @@ else:
                 fig_resumo.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
                 st.plotly_chart(fig_resumo, use_container_width=True)
 
+            # 3. ATUALIZA O COFRE EM TEMPO REAL (Para não perder dados se mudar de aba)
+            st.session_state.backup_macro.update({
+                'rf': st.session_state.rf_val,
+                'rv': st.session_state.rv_val,
+                'rv_br': st.session_state.rv_br_val,
+                'rv_ex': st.session_state.rv_ex_val,
+                'br_ac': st.session_state.br_ac_val,
+                'br_fii': st.session_state.br_fii_val,
+                'ex_st': st.session_state.ex_st_val,
+                'ex_re': st.session_state.ex_re_val,
+                'ex_et': st.session_state.ex_et_val
+            })
+
         # ==========================================
         # ABA 2: ATIVOS E PESOS POR CATEGORIA
         # ==========================================
@@ -407,10 +434,8 @@ else:
             st.subheader("📋 Composição de Ativos por Categoria")
             st.markdown("Adicione os ativos (tickers) e defina a porcentagem interna de cada um. **A soma de cada categoria deve fechar exatamente 100%.**")
 
-            # Categorias disponíveis
             categorias_lista = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
             
-            # Novo estilo de botões (pills) para selecionar as sub-categorias
             cat_selecionada = st.pills(
                 "Selecione a Categoria para configurar:", 
                 categorias_lista, 
@@ -419,7 +444,6 @@ else:
             
             st.markdown(f"### ⚙️ Editando: **{cat_selecionada}**")
 
-            # Lê os ativos já cadastrados do usuário na planilha
             df_ativos_existentes = ler_planilha("Ativos_Config")
             if not df_ativos_existentes.empty and 'Email' in df_ativos_existentes.columns:
                 df_ativos_existentes['Email'] = df_ativos_existentes['Email'].astype(str).str.strip().str.lower()
@@ -428,7 +452,6 @@ else:
             else:
                 df_ativos_user = pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
 
-            # Filtra apenas os dados da categoria clicada
             df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_selecionada][['Ativo', 'Peso']].copy()
             
             if df_cat_salvo.empty:
@@ -437,29 +460,41 @@ else:
                 df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
                 df_inicial = df_cat_salvo
 
-            # Editor de dados interativo
-            df_editado = st.data_editor(
-                df_inicial,
-                num_rows="dynamic",
-                use_container_width=True,
-                hide_index=True, 
-                key=f"editor_cat_{cat_selecionada}"
-            )
+            # Restringindo largura da tabela para o visual ficar perfeito
+            col_tabela, col_vazia = st.columns([1.5, 1])
 
-            # Cálculo em tempo real da soma dos pesos
-            soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
-            
-            col_info, col_btn = st.columns([2, 1])
-            with col_info:
-                if abs(soma_pesos - 100.0) < 0.01:
-                    st.success(f"✅ Soma total: **{soma_pesos:.2f}%** (Perfeito!)")
-                else:
-                    st.warning(f"⚠️ Soma total: **{soma_pesos:.2f}%** (Atenção: o ideal é que feche exatamente 100%).")
-            
-            with col_btn:
-                if st.button(f"Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
-                    df_para_salvar = df_editado.copy()
-                    df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
-                    if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
-                        st.success(f"Ativos de {cat_selecionada} salvos!")
-                        st.rerun()
+            with col_tabela:
+                df_editado = st.data_editor(
+                    df_inicial,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True, 
+                    key=f"editor_cat_v2_{cat_selecionada}", # Chave V2 para forçar o cache novo
+                    column_config={
+                        "Ativo": st.column_config.TextColumn("Ativo (Ticker)", required=True),
+                        "Peso (%)": st.column_config.NumberColumn(
+                            "Peso (%)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            step=0.5,
+                            format="%.2f"
+                        )
+                    }
+                )
+
+                soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
+                
+                col_info, col_btn = st.columns([2, 1])
+                with col_info:
+                    if abs(soma_pesos - 100.0) < 0.01:
+                        st.success(f"✅ Soma total: **{soma_pesos:.2f}%**")
+                    else:
+                        st.warning(f"⚠️ Soma: **{soma_pesos:.2f}%** (O ideal é 100%)")
+                
+                with col_btn:
+                    if st.button(f"Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
+                        df_para_salvar = df_editado.copy()
+                        df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
+                        if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
+                            st.success(f"Ativos de {cat_selecionada} salvos!")
+                            st.rerun()
