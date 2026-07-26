@@ -63,3 +63,93 @@ app-investimentos/
 ├── .gitignore            # Arquivos ignorados pelo Git
 └── .streamlit/
     └── secrets.toml      # Suas credenciais (APENAS PARA USO LOCAL - NÃO COMITAR)
+```
+
+### 4.2. O Arquivo `requirements.txt`
+Este arquivo informa ao Streamlit Cloud quais bibliotecas instalar. Exemplo:
+
+```text
+streamlit==1.41.0
+pandas==2.2.3
+gspread==6.1.4
+google-auth==2.37.0
+plotly==5.24.1
+```
+
+### 4.3. Configuração de Segredos Locais (Opcional, para testes)
+Crie uma pasta oculta chamada `.streamlit` e dentro dela um arquivo `secrets.toml`. Adicione o conteúdo do seu arquivo JSON baixado do GCP no seguinte formato:
+
+```toml
+gcp_service_account = '''
+{
+  "type": "service_account",
+  "project_id": "seu-projeto-id",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "client_email": "seu-email@seu-projeto.iam.gserviceaccount.com",
+  "client_id": "...",
+  "auth_uri": "[https://accounts.google.com/o/oauth2/auth](https://accounts.google.com/o/oauth2/auth)",
+  "token_uri": "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
+  "auth_provider_x509_cert_url": "[https://www.googleapis.com/oauth2/v1/certs](https://www.googleapis.com/oauth2/v1/certs)",
+  "client_x509_cert_url": "..."
+}
+'''
+```
+**IMPORTANTE:** O arquivo `secrets.toml` e o JSON original **NUNCA** devem ser enviados (comitados) para o GitHub.
+
+### 4.4. O Arquivo `.gitignore`
+Para evitar vazamento de credenciais, crie um arquivo `.gitignore` com o conteúdo:
+
+```text
+.streamlit/
+credenciais.json
+__pycache__/
+```
+
+### 4.5. Enviando para o GitHub
+1. Crie um repositório vazio no GitHub (ex: `app-investimentos`).
+2. No terminal da sua máquina, dentro da pasta do projeto, execute:
+
+```bash
+git init
+git add .
+git commit -m "Commit inicial do App de Investimentos"
+git branch -M main
+git remote add origin [https://github.com/brunoheins/app-investimentos.git](https://github.com/brunoheins/app-investimentos.git)
+git push -u origin main
+```
+
+## 5. Passo a Passo: Deploy (Implantação) no Streamlit Community Cloud
+O Streamlit Community Cloud gerencia a hospedagem e detecta automaticamente novas atualizações (commits) feitas no repositório GitHub.
+
+1. Acesse [share.streamlit.io](https://share.streamlit.io/) e faça login (recomenda-se usar a conta conectada ao GitHub).
+2. Clique em **New app**.
+3. Selecione **Use existing repo** (Usar repositório existente).
+4. Preencha as informações:
+   * **Repository:** `brunoheins/app-investimentos`
+   * **Branch:** `main`
+   * **Main file path:** `app.py`
+5. **PASSO CRÍTICO - Gerenciamento de Segredos (Secrets):** Antes de clicar em "Deploy", clique em **Advanced settings** (Configurações avançadas).
+6. No campo *Secrets*, cole o conteúdo do seu arquivo `secrets.toml` (criado no passo 4.3). O formato deve ser idêntico ao local.
+7. Clique em **Save** e, em seguida, em **Deploy**.
+
+## 6. Fluxo de Atualização (CI/CD)
+Uma vez que o app está configurado, o processo de atualização (deploy) é automático.
+
+1. Você realiza alterações no código (ex: modificando o `app.py` no seu computador).
+2. Comita as alterações via Git:
+
+```bash
+git add app.py
+git commit -m "Nova melhoria na UI"
+git push origin main
+```
+
+3. O Streamlit Cloud detecta o "push" no branch `main` e reinicia a aplicação automaticamente com a nova versão, mantendo as credenciais seguras.
+
+## 7. Principais Funcionalidades do Código (Referência Técnica)
+* **Leitura de Planilhas:** Utiliza a biblioteca `gspread` autenticada com as credenciais do GCP. A função principal é `ler_planilha(nome_aba)`, que retorna um DataFrame do `pandas`.
+* **Escrita de Dados:** Funções como `salvar_configuracao` e `salvar_ativos_categoria` fazem buscas na planilha, atualizam as linhas correspondentes ao usuário (email) e reescrevem os dados usando o método `sheet.update()`.
+* **Gerenciamento de Estado:** O `st.session_state` é intensamente utilizado para manter informações entre recarregamentos da página, como o usuário logado (`email`), a aba ativa no menu de configurações e os valores temporários digitados nos inputs.
+* **Otimização de Layout:** Injeção de CSS personalizado via `st.markdown` para compactar margens, reduzir tamanho de fontes e melhorar a exibição em monitores menores (ex: 14 polegadas).
+* **Navegação Visual:** Substituição das abas nativas do Streamlit (`st.tabs`) por botões de navegação personalizados para maior destaque e controle de estado usando o parâmetro `type="primary"`/`type="secondary"`.
