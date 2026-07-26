@@ -8,6 +8,10 @@ def render():
     st.title("📝 Central de Lançamentos")
     st.markdown("Registre a entrada de dinheiro novo na corretora e as suas ordens de compra.")
 
+    # Cria a variável na memória do sistema caso ela não exista
+    if 'dicas_salvas' not in st.session_state:
+        st.session_state.dicas_salvas = None
+
     tipo_lancamento = st.pills(
         "O que você deseja registrar?",
         ["💰 1. Depósito de Dinheiro (Aporte)", "🛒 2. Compra de Ativos"],
@@ -40,8 +44,11 @@ def render():
         st.subheader("Registrar Compra")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
-        # --- PAINEL RETRÁTIL COM AS RECOMENDAÇÕES (NOVIDADE) ---
-        with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=False):
+        # --- PAINEL RETRÁTIL COM AS RECOMENDAÇÕES (COM MEMÓRIA) ---
+        # Se houver dicas na memória, o painel já abre expandido automaticamente
+        painel_aberto = True if st.session_state.dicas_salvas else False
+        
+        with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=painel_aberto):
             st.markdown("Descubra qual é o ativo mais atrasado na sua carteira neste momento:")
             c_val, c_num, c_btn = st.columns([2, 1, 1.2])
             val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=10.0, value=1000.0, step=100.0)
@@ -50,16 +57,27 @@ def render():
             if c_btn.button("Gerar Dica Rápida", use_container_width=True):
                 with st.spinner("Calculando defasagem..."):
                     compras, resto, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
-                    
-                if erro:
-                    st.error(erro)
-                elif not compras:
+                    # Salva o resultado na memória!
+                    st.session_state.dicas_salvas = {'compras': compras, 'resto': resto, 'erro': erro}
+            
+            # Exibe as dicas se elas existirem na memória
+            if st.session_state.dicas_salvas:
+                st.markdown("---")
+                d = st.session_state.dicas_salvas
+                if d['erro']:
+                    st.error(d['erro'])
+                elif not d['compras']:
                     st.warning("Nenhuma sugestão gerada.")
                 else:
-                    for c in compras:
+                    for c in d['compras']:
                         st.success(f"🎯 **Sugerido:** Comprar **{c['Ativo']}** ({c['Categoria']}) — Alocar **{formata_br(c['Valor'])}** (Aprox. {c['Qtd_Sugerida']})")
-                    if resto > 0.05:
-                        st.caption(f"⚠️ O sistema recomendou segurar **{formata_br(resto)}** na conta para não ultrapassar suas metas.")
+                    if d['resto'] > 0.05:
+                        st.caption(f"⚠️ O sistema recomendou segurar **{formata_br(d['resto'])}** na conta para não ultrapassar suas metas.")
+                
+                # Botão para limpar a memória
+                if st.button("🧹 Limpar Dicas"):
+                    st.session_state.dicas_salvas = None
+                    st.rerun()
         
         st.markdown("<br>", unsafe_allow_html=True)
         # -------------------------------------------------------
