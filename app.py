@@ -98,7 +98,7 @@ else:
     st.sidebar.markdown("---")
     if st.sidebar.button("Sair do App"):
         st.session_state.logado = False
-        st.session_state.pop('config_inicializada', None) # Limpa a memória das configs ao sair
+        st.session_state.pop('config_inicializada', None)
         st.rerun()
 
     # --- TELA 1: RESUMO DA APLICAÇÃO ---
@@ -187,7 +187,7 @@ else:
         st.title("⚙️ Definição de Metas de Alocação")
         st.markdown("Ajuste seus percentuais. O sistema compensa automaticamente para a soma sempre cravar **100%**.")
 
-        # Inicializa as variáveis
+        # Inicializa as variáveis na sessão
         if 'config_inicializada' not in st.session_state:
             df_conf = ler_planilha("Configuracao")
             user_conf = {}
@@ -208,86 +208,116 @@ else:
             st.session_state.ex_et_val = float(user_conf.get('EX_ETFs', 30.0))
             st.session_state.config_inicializada = True
 
-        # Callbacks (REGRAS ATUALIZADAS AQUI)
+        # Callbacks de ajuste automático
         def ajusta_macro(modificado):
-            if modificado == 'rf':
-                st.session_state.rv_val = round(100.0 - st.session_state.rf_val, 2)
-            else:
-                st.session_state.rf_val = round(100.0 - st.session_state.rv_val, 2)
+            if modificado == 'rf': st.session_state.rv_val = round(100.0 - st.session_state.rf_val, 2)
+            else: st.session_state.rf_val = round(100.0 - st.session_state.rv_val, 2)
 
         def ajusta_rv(modificado):
-            if modificado == 'br':
-                st.session_state.rv_ex_val = round(100.0 - st.session_state.rv_br_val, 2)
-            else:
-                st.session_state.rv_br_val = round(100.0 - st.session_state.rv_ex_val, 2)
+            if modificado == 'br': st.session_state.rv_ex_val = round(100.0 - st.session_state.rv_br_val, 2)
+            else: st.session_state.rv_br_val = round(100.0 - st.session_state.rv_ex_val, 2)
 
         def ajusta_br(modificado):
-            if modificado == 'ac':
-                st.session_state.br_fii_val = round(100.0 - st.session_state.br_ac_val, 2)
-            else:
-                st.session_state.br_ac_val = round(100.0 - st.session_state.br_fii_val, 2)
+            if modificado == 'ac': st.session_state.br_fii_val = round(100.0 - st.session_state.br_ac_val, 2)
+            else: st.session_state.br_ac_val = round(100.0 - st.session_state.br_fii_val, 2)
 
         def ajusta_ex(modificado):
             if modificado == 'st':
-                # Stocks altera ETFs
                 novo_et = round(100.0 - st.session_state.ex_st_val - st.session_state.ex_re_val, 2)
                 if novo_et < 0:
                     st.session_state.ex_et_val = 0.0
                     st.session_state.ex_re_val = round(100.0 - st.session_state.ex_st_val, 2)
-                else:
-                    st.session_state.ex_et_val = novo_et
-                    
+                else: st.session_state.ex_et_val = novo_et
             elif modificado == 're':
-                # REITs altera ETFs
                 novo_et = round(100.0 - st.session_state.ex_st_val - st.session_state.ex_re_val, 2)
                 if novo_et < 0:
                     st.session_state.ex_et_val = 0.0
                     st.session_state.ex_st_val = round(100.0 - st.session_state.ex_re_val, 2)
-                else:
-                    st.session_state.ex_et_val = novo_et
-                    
+                else: st.session_state.ex_et_val = novo_et
             elif modificado == 'et':
-                # ETFs altera Stocks
                 novo_st = round(100.0 - st.session_state.ex_et_val - st.session_state.ex_re_val, 2)
                 if novo_st < 0:
                     st.session_state.ex_st_val = 0.0
                     st.session_state.ex_re_val = round(100.0 - st.session_state.ex_et_val, 2)
-                else:
-                    st.session_state.ex_st_val = novo_st
+                else: st.session_state.ex_st_val = novo_st
 
-        # --- CAMPOS VISUAIS ---
-        st.subheader("Nível 1: Macro Alocação")
-        col1, col2 = st.columns(2)
-        col1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, step=1.0, key="rf_val", on_change=ajusta_macro, args=('rf',))
-        col2.number_input("Renda Variável (RV) %", min_value=0.0, max_value=100.0, step=1.0, key="rv_val", on_change=ajusta_macro, args=('rv',))
-        
-        st.markdown("---")
-        st.subheader("Nível 2: Renda Variável")
-        col3, col4 = st.columns(2)
-        col3.number_input("Brasil %", min_value=0.0, max_value=100.0, step=1.0, key="rv_br_val", on_change=ajusta_rv, args=('br',))
-        col4.number_input("Exterior %", min_value=0.0, max_value=100.0, step=1.0, key="rv_ex_val", on_change=ajusta_rv, args=('ex',))
-        
-        st.markdown("---")
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            st.subheader("Nível 3A: Brasil")
-            st.number_input("Ações %", min_value=0.0, max_value=100.0, step=1.0, key="br_ac_val", on_change=ajusta_br, args=('ac',))
-            st.number_input("FIIs %", min_value=0.0, max_value=100.0, step=1.0, key="br_fii_val", on_change=ajusta_br, args=('fii',))
-                
-        with col_b2:
-            st.subheader("Nível 3B: Exterior")
-            st.number_input("Stocks %", min_value=0.0, max_value=100.0, step=1.0, key="ex_st_val", on_change=ajusta_ex, args=('st',))
-            st.number_input("REITs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_re_val", on_change=ajusta_ex, args=('re',))
-            st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
+        # --- DIVISÃO DA TELA: ESQUERDA (Inputs) vs DIREITA (Resumo Final) ---
+        col_esquerda, col_direita = st.columns([2, 1], gap="large")
+
+        with col_esquerda:
+            st.subheader("Nível 1: Macro Alocação")
+            c1, c2 = st.columns(2)
+            c1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, step=1.0, key="rf_val", on_change=ajusta_macro, args=('rf',))
+            c2.number_input("Renda Variável (RV) %", min_value=0.0, max_value=100.0, step=1.0, key="rv_val", on_change=ajusta_macro, args=('rv',))
             
-        st.markdown("---")
-        
-        if st.button("Salvar Configuração da Carteira"):
-            dados_para_salvar = {
-                'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
-                'RV_Brasil': st.session_state.rv_br_val, 'RV_Exterior': st.session_state.rv_ex_val,
-                'BR_Acoes': st.session_state.br_ac_val, 'BR_FIIs': st.session_state.br_fii_val, 
-                'EX_Stocks': st.session_state.ex_st_val, 'EX_REITs': st.session_state.ex_re_val, 'EX_ETFs': st.session_state.ex_et_val
-            }
-            if salvar_configuracao(st.session_state.email, dados_para_salvar):
-                st.success("✅ Metas atualizadas com sucesso!")
+            st.markdown("---")
+            st.subheader("Nível 2: Renda Variável")
+            c3, c4 = st.columns(2)
+            c3.number_input("Brasil %", min_value=0.0, max_value=100.0, step=1.0, key="rv_br_val", on_change=ajusta_rv, args=('br',))
+            c4.number_input("Exterior %", min_value=0.0, max_value=100.0, step=1.0, key="rv_ex_val", on_change=ajusta_rv, args=('ex',))
+            
+            st.markdown("---")
+            c_b1, c_b2 = st.columns(2)
+            with c_b1:
+                st.subheader("Nível 3A: Brasil")
+                st.number_input("Ações %", min_value=0.0, max_value=100.0, step=1.0, key="br_ac_val", on_change=ajusta_br, args=('ac',))
+                st.number_input("FIIs %", min_value=0.0, max_value=100.0, step=1.0, key="br_fii_val", on_change=ajusta_br, args=('fii',))
+                    
+            with c_b2:
+                st.subheader("Nível 3B: Exterior")
+                st.number_input("Stocks %", min_value=0.0, max_value=100.0, step=1.0, key="ex_st_val", on_change=ajusta_ex, args=('st',))
+                st.number_input("REITs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_re_val", on_change=ajusta_ex, args=('re',))
+                st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Salvar Configuração da Carteira", use_container_width=True):
+                dados_para_salvar = {
+                    'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
+                    'RV_Brasil': st.session_state.rv_br_val, 'RV_Exterior': st.session_state.rv_ex_val,
+                    'BR_Acoes': st.session_state.br_ac_val, 'BR_FIIs': st.session_state.br_fii_val, 
+                    'EX_Stocks': st.session_state.ex_st_val, 'EX_REITs': st.session_state.ex_re_val, 'EX_ETFs': st.session_state.ex_et_val
+                }
+                if salvar_configuracao(st.session_state.email, dados_para_salvar):
+                    st.success("✅ Metas atualizadas e persistidas com sucesso!")
+
+        with col_direita:
+            st.subheader("🎯 Resumo do Objetivo")
+            st.markdown("Distribuição real sobre o **patrimônio total**:")
+            
+            # --- Lógica de Matemática de Pesos ---
+            rf_final = st.session_state.rf_val
+            
+            # Converte os percentuais "pais" para formato decimal para fazer a multiplicação
+            peso_rv = st.session_state.rv_val / 100.0
+            peso_br = st.session_state.rv_br_val / 100.0
+            peso_ex = st.session_state.rv_ex_val / 100.0
+            
+            # Multiplica a cascata (ex: 50% RV * 50% BR * 40% Ações = 10% no Global)
+            acoes_final = peso_rv * peso_br * st.session_state.br_ac_val
+            fiis_final  = peso_rv * peso_br * st.session_state.br_fii_val
+            
+            stocks_final = peso_rv * peso_ex * st.session_state.ex_st_val
+            reits_final  = peso_rv * peso_ex * st.session_state.ex_re_val
+            etfs_final   = peso_rv * peso_ex * st.session_state.ex_et_val
+            
+            # Montagem da tabela de Resumo
+            df_resumo = pd.DataFrame({
+                "Categoria": ["Renda Fixa", "Ações (BR)", "FIIs (BR)", "Stocks (EX)", "REITs (EX)", "ETFs (EX)"],
+                "% Alvo Final": [rf_final, acoes_final, fiis_final, stocks_final, reits_final, etfs_final]
+            })
+            
+            # Formatando os números para visualização com o símbolo de %
+            df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].map('{:.2f}%'.format)
+            
+            # Renderiza a tabela limpa sem índice (hide_index=True)
+            st.dataframe(df_resumo, use_container_width=True, hide_index=True)
+            
+            # Plota um gráfico de rosca rápido para o resumo final!
+            fig_resumo = px.pie(
+                df_resumo, 
+                values=[rf_final, acoes_final, fiis_final, stocks_final, reits_final, etfs_final], 
+                names="Categoria", 
+                hole=0.5
+            )
+            fig_resumo.update_layout(margin=dict(t=0, b=0, l=0, r=0), showlegend=False)
+            st.plotly_chart(fig_resumo, use_container_width=True)
