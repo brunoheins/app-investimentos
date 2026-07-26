@@ -7,6 +7,47 @@ import plotly.express as px
 
 st.set_page_config(page_title="App Investimentos v1.0", layout="wide")
 
+# --- CSS CUSTOMIZADO PARA AS ABAS PARECEREM BOTÕES ---
+st.markdown("""
+<style>
+    /* Estilo geral da lista de abas */
+    [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: transparent;
+        padding: 4px 0;
+    }
+
+    /* Estilo de cada aba (botão inativo) */
+    [data-baseweb="tab"] {
+        height: 42px;
+        background-color: #f8fafc;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        padding: 0 20px;
+        color: #475569;
+        font-weight: 500;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        transition: all 0.2s ease-in-out;
+    }
+
+    /* Efeito ao passar o mouse */
+    [data-baseweb="tab"]:hover {
+        background-color: #f1f5f9;
+        border-color: #94a3b8;
+        color: #1e293b;
+    }
+
+    /* Estilo da aba selecionada (botão ativo) */
+    [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #ffffff;
+        border-color: #2563eb;
+        color: #2563eb;
+        font-weight: 600;
+        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.15);
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Função para ler os dados do Google Sheets
 def ler_planilha(aba_nome):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
