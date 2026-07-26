@@ -7,58 +7,13 @@ import plotly.express as px
 
 st.set_page_config(page_title="App Investimentos v1.0", layout="wide")
 
-# CSS Customizado para otimizar espaço e estilizar as Abas (Tabs)
+# CSS Customizado para otimizar espaço em telas de 14" (Laptops)
 st.markdown("""
     <style>
         /* Reduz o espaço em branco inútil no topo e na base */
         .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
-        }
-        
-        /* 1. Adiciona um gap (espaço) entre as abas para não grudarem */
-        div[data-testid="stTabs"] button[role="tablist"] {
-            gap: 10px;
-        }
-
-        /* 2. Estilizando as abas inativas */
-        div[data-testid="stTabs"] button[role="tab"] {
-            border: 1px solid #d3d3d3 !important; /* Contorno cinza claro */
-            border-radius: 8px !important; /* Arredondamento das bordas */
-            padding: 6px 16px !important; /* Espaçamento interno */
-            background-color: transparent !important;
-            min-height: 40px !important; 
-        }
-        
-        /* 3. Efeito ao passar o mouse (Hover) */
-        div[data-testid="stTabs"] button[role="tab"]:hover {
-            border-color: #ff4b4b !important; 
-            color: #ff4b4b !important;
-            background-color: rgba(255, 75, 75, 0.05) !important;
-        }
-        
-        /* 4. Estilizando a aba ATIVA (Selecionada) */
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            background-color: #ff4b4b !important; 
-            color: white !important; 
-            border-color: #ff4b4b !important;
-            font-weight: 600 !important;
-        }
-
-        /* 5. Estilizando o texto dentro da aba para garantir contraste na aba ativa */
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {
-            color: white !important;
-        }
-
-        /* 6. Escondendo a barrinha inferior e linha de base do Streamlit */
-        div[data-testid="stTabIndicator"] {
-            display: none !important;
-        }
-        div[data-baseweb="tab-highlight"] {
-            display: none !important;
-        }
-        div[data-baseweb="tab-border"] {
-            display: none !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -107,7 +62,7 @@ def salvar_configuracao(email, dados_dict):
         st.error(f"Erro ao salvar na planilha: {e}")
         return False
 
-# Função para Salvar os ativos de uma categoria específica (Corrigida)
+# Função para Salvar os ativos de uma categoria específica
 def salvar_ativos_categoria(email, categoria, df_ativos):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -169,7 +124,6 @@ if 'logado' not in st.session_state:
 # --- TELA DE LOGIN ---
 if not st.session_state.logado:
     st.title("🔑 Acesso ao Sistema de Investimentos")
-    # Reduzir largura dos campos de input no login
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         email_input = st.text_input("E-mail")
@@ -268,20 +222,18 @@ else:
                     df_categoria = carteira_agrupada.groupby('Categoria')['TotalAtual'].sum().reset_index()
                     fig = px.pie(df_categoria, values='TotalAtual', names='Categoria', hole=0.4)
                     fig.update_traces(textinfo='label+percent')
-                    # Altura fixa para evitar ocupar espaço vertical demais
                     fig.update_layout(height=350, margin=dict(t=20, b=20, l=0, r=0))
                     st.plotly_chart(fig, use_container_width=True)
                 
                 with col_tabelas:
                     st.subheader("Detalhamento por Ativos")
                     for cat in carteira_agrupada['Categoria'].unique():
-                        with st.expander(f"📁 {cat}", expanded=False): # Começa fechado para poupar espaço
+                        with st.expander(f"📁 {cat}", expanded=False): 
                             df_exibicao = carteira_agrupada[carteira_agrupada['Categoria'] == cat][['Ativo', 'Quantidade', 'PrecoMedio', 'PrecoAtual', 'TotalAtual', 'EvolucaoPct']].copy()
                             df_exibicao['PrecoMedio'] = df_exibicao['PrecoMedio'].map('R$ {:,.2f}'.format)
                             df_exibicao['PrecoAtual'] = df_exibicao['PrecoAtual'].map('R$ {:,.2f}'.format)
                             df_exibicao['TotalAtual'] = df_exibicao['TotalAtual'].map('R$ {:,.2f}'.format)
                             df_exibicao['EvolucaoPct'] = df_exibicao['EvolucaoPct'].map('{:+.2f}%'.format)
-                            # hide_index=True poupa espaço horizontal na tela
                             st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhum investimento encontrado.")
@@ -309,13 +261,18 @@ else:
     elif menu_selecionado == "⚙️ Configuração da Carteira":
         st.title("⚙️ Central de Configuração da Carteira")
         
-        # Abas principais da página de Configuração
-        aba_metas, aba_ativos = st.tabs(["🎯 Metas de Alocação", "📋 Ativos e Pesos por Categoria"])
+        # Novo estilo de navegação por botões (pills) em vez de abas normais
+        aba_selecionada = st.pills(
+            "Selecione o painel de configuração:", 
+            ["🎯 Metas de Alocação", "📋 Ativos e Pesos por Categoria"], 
+            default="🎯 Metas de Alocação"
+        )
+        st.markdown("---")
 
         # ==========================================
         # ABA 1: METAS DE ALOCAÇÃO
         # ==========================================
-        with aba_metas:
+        if aba_selecionada == "🎯 Metas de Alocação":
             st.markdown("Ajuste seus percentuais macro. O sistema compensa automaticamente para a soma sempre cravar **100%**.")
 
             if 'config_inicializada' not in st.session_state:
@@ -370,7 +327,6 @@ else:
                         st.session_state.ex_re_val = round(100.0 - st.session_state.ex_et_val, 2)
                     else: st.session_state.ex_st_val = novo_st
 
-            # Proporção ajustada de [2, 1] para [1.4, 1] para balancear monitores menores
             col_esquerda, col_direita = st.columns([1.4, 1], gap="medium")
 
             with col_esquerda:
@@ -432,7 +388,6 @@ else:
                 df_resumo_grafico = df_resumo[df_resumo["% Alvo Final"] > 0]
                 df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].map('{:.2f}%'.format)
                 
-                # hide_index=True garante leitura limpa sem gastar os lados da tabela
                 st.dataframe(df_resumo, use_container_width=True, hide_index=True)
                 
                 fig_resumo = px.pie(
@@ -442,20 +397,27 @@ else:
                     hole=0.5
                 )
                 fig_resumo.update_traces(textinfo='label+percent')
-                # Altura restrita a 300 para se encaixar na metade da tela em 14"
                 fig_resumo.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
                 st.plotly_chart(fig_resumo, use_container_width=True)
 
         # ==========================================
         # ABA 2: ATIVOS E PESOS POR CATEGORIA
         # ==========================================
-        with aba_ativos:
+        elif aba_selecionada == "📋 Ativos e Pesos por Categoria":
             st.subheader("📋 Composição de Ativos por Categoria")
             st.markdown("Adicione os ativos (tickers) e defina a porcentagem interna de cada um. **A soma de cada categoria deve fechar exatamente 100%.**")
 
-            # Categorias disponíveis para sub-distribuição
+            # Categorias disponíveis
             categorias_lista = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
-            cat_tabs = st.tabs(categorias_lista)
+            
+            # Novo estilo de botões (pills) para selecionar as sub-categorias
+            cat_selecionada = st.pills(
+                "Selecione a Categoria para configurar:", 
+                categorias_lista, 
+                default="Ações"
+            )
+            
+            st.markdown(f"### ⚙️ Editando: **{cat_selecionada}**")
 
             # Lê os ativos já cadastrados do usuário na planilha
             df_ativos_existentes = ler_planilha("Ativos_Config")
@@ -466,44 +428,38 @@ else:
             else:
                 df_ativos_user = pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
 
-            for i, cat_nome in enumerate(categorias_lista):
-                with cat_tabs[i]:
-                    st.markdown(f"### Ativos da Categoria: **{cat_nome}**")
-                    
-                    # Filtra os dados salvos para esta categoria específica
-                    df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_nome][['Ativo', 'Peso']].copy()
-                    
-                    if df_cat_salvo.empty:
-                        # Tabela inicial vazia para o usuário preencher
-                        df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0]})
-                    else:
-                        df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
-                        df_inicial = df_cat_salvo
+            # Filtra apenas os dados da categoria clicada
+            df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_selecionada][['Ativo', 'Peso']].copy()
+            
+            if df_cat_salvo.empty:
+                df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0]})
+            else:
+                df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
+                df_inicial = df_cat_salvo
 
-                    # Editor de dados interativo (tipo Excel)
-                    df_editado = st.data_editor(
-                        df_inicial,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True, # Adicionado para maximizar espaço visual
-                        key=f"editor_cat_{i}"
-                    )
+            # Editor de dados interativo
+            df_editado = st.data_editor(
+                df_inicial,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True, 
+                key=f"editor_cat_{cat_selecionada}"
+            )
 
-                    # Cálculo em tempo real da soma dos pesos
-                    soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
-                    
-                    col_info, col_btn = st.columns([2, 1])
-                    with col_info:
-                        if abs(soma_pesos - 100.0) < 0.01:
-                            st.success(f"✅ Soma total: **{soma_pesos:.2f}%** (Perfeito!)")
-                        else:
-                            st.warning(f"⚠️ Soma total: **{soma_pesos:.2f}%** (Atenção: o ideal é que feche exatamente 100%).")
-                    
-                    with col_btn:
-                        if st.button(f"Salvar {cat_nome}", key=f"btn_save_{i}", use_container_width=True):
-                            # Prepara dataframe para salvar
-                            df_para_salvar = df_editado.copy()
-                            df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
-                            if salvar_ativos_categoria(st.session_state.email, cat_nome, df_para_salvar):
-                                st.success(f"Ativos de {cat_nome} salvos!")
-                                st.rerun()
+            # Cálculo em tempo real da soma dos pesos
+            soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
+            
+            col_info, col_btn = st.columns([2, 1])
+            with col_info:
+                if abs(soma_pesos - 100.0) < 0.01:
+                    st.success(f"✅ Soma total: **{soma_pesos:.2f}%** (Perfeito!)")
+                else:
+                    st.warning(f"⚠️ Soma total: **{soma_pesos:.2f}%** (Atenção: o ideal é que feche exatamente 100%).")
+            
+            with col_btn:
+                if st.button(f"Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
+                    df_para_salvar = df_editado.copy()
+                    df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
+                    if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
+                        st.success(f"Ativos de {cat_selecionada} salvos!")
+                        st.rerun()
