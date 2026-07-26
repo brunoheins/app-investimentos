@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from utils import ler_planilha, obter_cotacoes
+from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 
 # Função auxiliar para formatar moeda no padrão BR
 def formata_br(valor):
@@ -91,8 +91,11 @@ def render():
                 if not df_user_invest.empty:
                     df_user_invest['Ativo'] = df_user_invest['Ativo'].astype(str).str.strip().str.upper()
                     df_user_invest['Categoria'] = df_user_invest['Categoria'].astype(str).str.strip()
-                    df_user_invest['Quantidade'] = pd.to_numeric(df_user_invest['Quantidade'], errors='coerce').fillna(0)
-                    df_user_invest['PrecoAtual'] = pd.to_numeric(df_user_invest['PrecoAtual'], errors='coerce').fillna(0)
+                    
+                    # Usamos a extração BR para evitar que valores quebrem a matemática
+                    df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(extrair_numero_br)
+                    df_user_invest['PrecoAtual'] = df_user_invest['PrecoAtual'].apply(extrair_numero_br)
+                    
                     df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoAtual']
 
                     df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
