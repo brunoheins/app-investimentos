@@ -21,7 +21,6 @@ def render():
                 df_user_dep = df_user_dep.dropna(subset=['Data'])
                 df_user_dep['Valor'] = df_user_dep['Valor'].apply(extrair_numero_br)
                 df_user_dep['MesAno'] = df_user_dep['Data'].dt.strftime('%Y-%m')
-                # Soma todos os depósitos feitos dentro do mesmo mês
                 df_dep_agrupado = df_user_dep.groupby('MesAno')['Valor'].sum().reset_index()
             else:
                 df_dep_agrupado = pd.DataFrame(columns=['MesAno', 'Valor'])
@@ -40,11 +39,12 @@ def render():
                 
                 df_user_inv['Ativo'] = df_user_inv['Ativo'].astype(str).str.strip().str.upper()
                 df_user_inv['Quantidade'] = df_user_inv['Quantidade'].apply(extrair_numero_br)
-                df_user_inv['PrecoAtual_Planilha'] = df_user_inv['PrecoAtual'].apply(extrair_numero_br)
                 
+                # --- AQUI É ONDE O ERRO OCORRIA ---
+                # A coluna 'PrecoAtual' não é mais chamada. Lemos o preço ao vivo direto da aba Cotação.
                 cotacoes_dict = obter_cotacoes()
-                df_user_inv['PrecoLive'] = df_user_inv['Ativo'].map(cotacoes_dict)
-                df_user_inv['PrecoLive'] = pd.to_numeric(df_user_inv['PrecoLive']).combine_first(df_user_inv['PrecoAtual_Planilha']).fillna(0)
+                df_user_inv['PrecoLive'] = df_user_inv['Ativo'].map(cotacoes_dict).fillna(0.0)
+                # --------------------------------------------------
                 
                 df_user_inv['MesAno'] = df_user_inv['DataCompra'].dt.strftime('%Y-%m')
                 df_inv_agrupado = df_user_inv.groupby(['MesAno', 'Ativo']).agg({
@@ -56,60 +56,55 @@ def render():
         else:
             df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'PrecoLive'])
 
-        # Se não tiver dados de nenhum dos dois, encerra para não dar erro
         if df_dep_agrupado.empty and df_inv_agrupado.empty:
             st.info("Registre depósitos e compras na aba '📝 Lançamentos' para ver a evolução do seu patrimônio ao longo do tempo.")
             return
 
-        # --- 3. CRIAR A LINHA DO TEMPO CONTÍNUA (SEM BURACOS) ---
+        # --- 3. CRIAR A LINHA DO TEMPO CONTÍNUA ---
         meses_dep = df_dep_agrupado['MesAno'].unique().tolist() if not df_dep_agrupado.empty else []
         meses_inv = df_inv_agrupado['MesAno'].unique().tolist() if not df_inv_agrupado.empty else []
         
         todos_meses = sorted(list(set(meses_dep + meses_inv)))
-        mes_inicial = todos_meses[0]
+        
+        # Prevenção de erro caso todos_meses esteja vazio
+        if todos_meses:
+            mes_inicial = todos_meses[0]
+        else:
+            mes_inicial = datetime.now().strftime('%Y-%m')
+            
         mes_atual = datetime.now().strftime('%Y-%m')
         
-        # Garante que vai do primeiro mês de registro até o mês atual sem pular NENHUM mês!
         range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_atual}-01", freq='MS').strftime('%Y-%m').tolist()
         df_timeline = pd.DataFrame({'MesAno': range_meses})
         
-        # --- 4. CALCULAR DEPÓSITOS ACUMULADOS ---
-        # Junta o calendário com os depósitos (onde não teve depósito fica nulo)
+        # --- 4. CALCULAR DEPÓSITOS ACUMULADOS (ESCADINHA) ---
         df_timeline = pd.merge(df_timeline, df_dep_agrupado, on='MesAno', how='left')
-        
-        # Troca os "nulos" por Zero
         df_timeline['Valor'] = df_timeline['Valor'].fillna(0)
-        
-        # A MÁGICA: cumsum() faz a soma escadinha (Mês 1 + Mês 2 + Mês 3...)
         df_timeline['TotalAportado'] = df_timeline['Valor'].cumsum()
 
         # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO ---
         linha_mercado = []
-        estoque_ativos = {} # Guarda a quantidade de cotas que você acumulou na vida
+        estoque_ativos = {} 
         
         for mes in range_meses:
-            # Pega as compras feitas especificamente neste mês
             compras_mes = df_inv_agrupado[df_inv_agrupado['MesAno'] == mes]
-            
             for _, row in compras_mes.iterrows():
                 ativo = row['Ativo']
                 if ativo not in estoque_ativos:
                     estoque_ativos[ativo] = {'qtd': 0.0, 'preco_live': row['PrecoLive']}
                 
                 estoque_ativos[ativo]['qtd'] += row['Quantidade']
-                estoque_ativos[ativo]['preco_live'] = row['PrecoLive'] # Atualiza cotação
+                estoque_ativos[ativo]['preco_live'] = row['PrecoLive']
             
-            # Multiplica todo o seu estoque acumulado ATÉ ESSE MÊS pelo preço da aba Cotacao
             valor_mercado_mes = sum(d['qtd'] * d['preco_live'] for d in estoque_ativos.values())
             linha_mercado.append(valor_mercado_mes)
             
         df_timeline['ValorMercado'] = linha_mercado
         
-        # --- 6. FORMATAÇÃO FINAL PARA EXIBIÇÃO ---
         df_timeline['MesExibicao'] = pd.to_datetime(df_timeline['MesAno'], format='%Y-%m').dt.strftime('%m/%Y')
         df_timeline.loc[df_timeline.index[-1], 'MesExibicao'] = "Hoje"
 
-        # --- 7. CARDS DE RESUMO ---
+        # --- 6. CARDS DE RESUMO ---
         live_aportado = df_timeline.iloc[-1]['TotalAportado']
         live_atual = df_timeline.iloc[-1]['ValorMercado']
         
@@ -123,10 +118,9 @@ def render():
         
         st.markdown("---")
 
-        # --- 8. GRÁFICO PLOTLY ---
+        # --- 7. GRÁFICO PLOTLY ---
         fig = go.Figure()
 
-        # Linha 1: Depósitos Acumulados
         fig.add_trace(go.Scatter(
             x=df_timeline['MesExibicao'], 
             y=df_timeline['TotalAportado'],
@@ -138,7 +132,6 @@ def render():
             hovertemplate="Aportado Acumulado: R$ %{y:,.2f}<extra></extra>"
         ))
 
-        # Linha 2: Valor de Mercado Corrigido
         cor_saldo = '#00cc96' if live_atual >= live_aportado else '#ef553b'
         cor_area = 'rgba(0, 204, 150, 0.25)' if live_atual >= live_aportado else 'rgba(239, 85, 59, 0.25)'
         
@@ -163,3 +156,22 @@ def render():
         )
         
         st.plotly_chart(fig, use_container_width=True)
+
+    # --- 8. AUDITORIA VISUAL ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🔍 Inspecionar Dados Lidos (Auditoria)"):
+        st.markdown("Se o gráfico parecer estranho, confira nas tabelas abaixo em quais meses o sistema agrupou os seus depósitos:")
+        c_dbg1, c_dbg2 = st.columns(2)
+        with c_dbg1:
+            st.markdown("**1. Soma dos Depósitos por Mês**")
+            if not df_dep_agrupado.empty:
+                df_dep_exibicao = df_dep_agrupado.copy()
+                df_dep_exibicao['Valor'] = df_dep_exibicao['Valor'].apply(formata_br)
+                st.dataframe(df_dep_exibicao, hide_index=True, use_container_width=True)
+            else:
+                st.info("Nenhum depósito agrupado.")
+        with c_dbg2:
+            st.markdown("**2. Acúmulo no Gráfico**")
+            df_dbg = df_timeline[['MesExibicao', 'Valor', 'TotalAportado']].copy()
+            df_dbg.rename(columns={'Valor': 'Depósito no Mês', 'TotalAportado': 'Linha Cinza'}, inplace=True)
+            st.dataframe(df_dbg, hide_index=True, use_container_width=True)
