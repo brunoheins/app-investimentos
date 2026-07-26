@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils import ler_planilha, registrar_deposito, registrar_compra, obter_ativos_por_categoria
+from utils import registrar_deposito, registrar_compra, obter_ativos_por_categoria, formata_br
+from menu.aportes import motor_de_aportes # <-- IMPORTA O CÉREBRO DE APORTES!
 
 def render():
     st.title("📝 Central de Lançamentos")
@@ -33,21 +34,42 @@ def render():
                     st.success(f"Depósito de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
 
     # ==========================================
-    # 2. COMPRA DE ATIVOS (AGORA DINÂMICO E SEGURO)
+    # 2. COMPRA DE ATIVOS 
     # ==========================================
     elif tipo_lancamento == "🛒 2. Compra de Ativos":
         st.subheader("Registrar Compra")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
-        # Busca o dicionário onde as chaves são as Categorias e os valores são as listas de Ativos
+        # --- PAINEL RETRÁTIL COM AS RECOMENDAÇÕES (NOVIDADE) ---
+        with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=False):
+            st.markdown("Descubra qual é o ativo mais atrasado na sua carteira neste momento:")
+            c_val, c_num, c_btn = st.columns([2, 1, 1.2])
+            val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=10.0, value=1000.0, step=100.0)
+            num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3])
+            
+            if c_btn.button("Gerar Dica Rápida", use_container_width=True):
+                with st.spinner("Calculando defasagem..."):
+                    compras, resto, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
+                    
+                if erro:
+                    st.error(erro)
+                elif not compras:
+                    st.warning("Nenhuma sugestão gerada.")
+                else:
+                    for c in compras:
+                        st.success(f"🎯 **Sugerido:** Comprar **{c['Ativo']}** ({c['Categoria']}) — Alocar **{formata_br(c['Valor'])}** (Aprox. {c['Qtd_Sugerida']})")
+                    if resto > 0.05:
+                        st.caption(f"⚠️ O sistema recomendou segurar **{formata_br(resto)}** na conta para não ultrapassar suas metas.")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        # -------------------------------------------------------
+
         cat_ativos_dict = obter_ativos_por_categoria()
         categorias_disp = list(cat_ativos_dict.keys())
 
-        # Seleção de Categoria e Ativo ficam FORA de um st.form para atualizarem em tempo real
         c_cat, c_atv = st.columns(2)
         cat_compra = c_cat.selectbox("1. Escolha a Categoria", categorias_disp)
         
-        # Puxa apenas a coluna correspondente da planilha Cotacao
         ativos_da_categoria = cat_ativos_dict.get(cat_compra, [])
         
         if not ativos_da_categoria:
