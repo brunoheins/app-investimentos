@@ -437,9 +437,14 @@ else:
                 df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
                 df_inicial = df_cat_salvo
 
-            # Editor de dados interativo
+            # 1. Aplica o estilo para centralizar o texto das células e dos cabeçalhos
+            df_estilizado = df_inicial.style.set_properties(**{'text-align': 'center'}).set_table_styles([
+                {'selector': 'th', 'props': [('text-align', 'center')]}
+            ])
+
+            # 2. Passa o dataframe 'df_estilizado' para o editor
             df_editado = st.data_editor(
-                df_inicial,
+                df_estilizado, 
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=True, 
