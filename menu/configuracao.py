@@ -28,15 +28,38 @@ def render():
             'ex_et': float(user_conf.get('EX_ETFs', 30.0))
         }
 
-    aba_selecionada = st.pills(
-        "Selecione o painel de configuração:", 
-        ["🎯 Metas de Alocação", "📋 Ativos e Pesos por Categoria"], 
-        default="🎯 Metas de Alocação"
+    # ==========================================
+    # NOVO SISTEMA DE ABAS PRINCIPAL
+    # ==========================================
+    if 'aba_config' not in st.session_state:
+        st.session_state.aba_config = "Metas"
+
+    def mudar_aba_config(nova_aba):
+        st.session_state.aba_config = nova_aba
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_aba1, c_aba2 = st.columns(2)
+    
+    c_aba1.button(
+        "🎯 Metas de Alocação", 
+        use_container_width=True, 
+        on_click=mudar_aba_config, args=("Metas",),
+        type="primary" if st.session_state.aba_config == "Metas" else "secondary"
     )
+
+    c_aba2.button(
+        "📋 Ativos e Pesos por Categoria", 
+        use_container_width=True, 
+        on_click=mudar_aba_config, args=("Ativos",),
+        type="primary" if st.session_state.aba_config == "Ativos" else "secondary"
+    )
+    
     st.markdown("---")
 
     # ==========================================
-    if aba_selecionada == "🎯 Metas de Alocação":
+    # 1. METAS DE ALOCAÇÃO
+    # ==========================================
+    if st.session_state.aba_config == "Metas":
         st.markdown("Ajuste seus percentuais macro. O sistema compensa automaticamente para a soma sempre cravar **100%**.")
 
         # RESTAURA VALORES DO COFRE
@@ -108,7 +131,7 @@ def render():
                 st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Salvar Configuração Macro", use_container_width=True):
+            if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
                 dados_para_salvar = {
                     'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
                     'RV_Brasil': st.session_state.rv_br_val, 'RV_Exterior': st.session_state.rv_ex_val,
@@ -157,13 +180,34 @@ def render():
         })
 
     # ==========================================
-    elif aba_selecionada == "📋 Ativos e Pesos por Categoria":
+    # 2. ATIVOS E PESOS POR CATEGORIA
+    # ==========================================
+    elif st.session_state.aba_config == "Ativos":
         st.subheader("📋 Composição de Ativos por Categoria")
         st.markdown("Adicione os ativos (tickers) e defina a porcentagem interna de cada um. **A soma de cada categoria deve fechar exatamente 100%.**")
 
-        cat_selecionada = st.pills("Selecione a Categoria para configurar:", 
-            ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"], default="Ações")
+        # Submenu dinâmico (Botões ao invés de pills)
+        if 'cat_config' not in st.session_state:
+            st.session_state.cat_config = "Ações"
+
+        def mudar_cat_config(nova_cat):
+            st.session_state.cat_config = nova_cat
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        categorias = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
+        cols_cat = st.columns(len(categorias))
         
+        for i, cat in enumerate(categorias):
+            cols_cat[i].button(
+                cat,
+                use_container_width=True,
+                on_click=mudar_cat_config, args=(cat,),
+                type="primary" if st.session_state.cat_config == cat else "secondary",
+                key=f"btn_nav_{cat}"
+            )
+        
+        cat_selecionada = st.session_state.cat_config
+        st.markdown("---")
         st.markdown(f"### ⚙️ Editando: **{cat_selecionada}**")
 
         df_ativos_existentes = ler_planilha("Ativos_Config")
@@ -206,7 +250,8 @@ def render():
                     st.warning(f"⚠️ Soma: **{soma_pesos:.2f}%** (O ideal é 100%)")
             
             with col_btn:
-                if st.button(f"Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
+                # Botão de salvar em destaque (primary)
+                if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True, type="primary"):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
