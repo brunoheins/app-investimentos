@@ -292,16 +292,30 @@ def registrar_novo_usuario(nome, email, senha):
     try:
         sheet = conectar_planilha("Usuarios")
         valores = sheet.get_all_values()
+        if not valores: return False, "A aba Usuarios está vazia."
+        
+        # Mapeamento Dinâmico (Lê o cabeçalho e descobre a posição das colunas)
+        cabecalho = [str(c).strip().lower() for c in valores[0]]
+        if 'email' not in cabecalho: return False, "Coluna 'Email' não encontrada na planilha."
+        
+        idx_email = cabecalho.index('email')
         email_lower = email.strip().lower()
         
+        # Trava de Segurança: Checa se o e-mail já existe
         if len(valores) > 1:
             for linha in valores[1:]:
-                # Checa se o email (coluna 2, índice 1) já existe
-                if len(linha) > 1 and str(linha[1]).strip().lower() == email_lower:
-                    return False, "⚠️ Este e-mail já está cadastrado."
+                if len(linha) > idx_email and str(linha[idx_email]).strip().lower() == email_lower:
+                    return False, "⚠️ Este e-mail já está cadastrado. Caso não se recorde da senha, vá na aba 'Esqueci a Senha' para recuperá-la."
                     
-        # Grava o novo usuário com status Pendente
-        sheet.append_row([nome.strip(), email_lower, senha, "Pendente"])
+        # Monta a nova linha de forma abstrata, respeitando o tamanho do cabeçalho
+        nova_linha = [""] * len(cabecalho)
+        
+        if 'nome' in cabecalho: nova_linha[cabecalho.index('nome')] = nome.strip()
+        if 'email' in cabecalho: nova_linha[cabecalho.index('email')] = email_lower
+        if 'senha' in cabecalho: nova_linha[cabecalho.index('senha')] = senha
+        if 'status' in cabecalho: nova_linha[cabecalho.index('status')] = "Pendente"
+        
+        sheet.append_row(nova_linha)
         return True, "✅ Cadastro enviado com sucesso! Aguarde a liberação do administrador."
     except Exception as e:
         return False, f"Erro ao cadastrar: {e}"
@@ -310,18 +324,28 @@ def alterar_senha_esquecida(email, nome, nova_senha):
     try:
         sheet = conectar_planilha("Usuarios")
         valores = sheet.get_all_values()
+        if not valores: return False, "A aba Usuarios está vazia."
+        
+        cabecalho = [str(c).strip().lower() for c in valores[0]]
+        if 'email' not in cabecalho or 'nome' not in cabecalho or 'senha' not in cabecalho:
+            return False, "Colunas Nome, Email ou Senha não encontradas."
+            
+        idx_email = cabecalho.index('email')
+        idx_nome = cabecalho.index('nome')
+        idx_senha = cabecalho.index('senha')
+        
         email_lower = email.strip().lower()
         nome_lower = nome.strip().lower()
         
-        # Pula o cabeçalho e começa a contar da linha 2
+        # Procura o usuário dinamicamente
         for i, linha in enumerate(valores[1:], start=2): 
-            if len(linha) > 1:
-                planilha_nome = str(linha[0]).strip().lower()
-                planilha_email = str(linha[1]).strip().lower()
+            if len(linha) > max(idx_email, idx_nome):
+                planilha_email = str(linha[idx_email]).strip().lower()
+                planilha_nome = str(linha[idx_nome]).strip().lower()
                 
-                # Como medida de segurança, o Nome e E-mail devem bater perfeitamente
                 if planilha_email == email_lower and planilha_nome == nome_lower:
-                    sheet.update_cell(i, 3, nova_senha) # Atualiza a Coluna C (Senha)
+                    # gspread usa índice 1-based (Coluna A = 1, B = 2...), por isso somamos 1 ao índice do Python
+                    sheet.update_cell(i, idx_senha + 1, nova_senha) 
                     return True, "✅ Senha alterada com sucesso! Você já pode fazer login."
         
         return False, "⚠️ Dados não conferem. Verifique se o Nome e E-mail estão exatamente iguais aos cadastrados."
@@ -332,15 +356,20 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
     try:
         sheet = conectar_planilha("Usuarios")
         valores = sheet.get_all_values()
+        if not valores: return False, "A aba Usuarios está vazia."
+        
+        cabecalho = [str(c).strip().lower() for c in valores[0]]
+        idx_email = cabecalho.index('email')
         email_lower = email.strip().lower()
         
         for i, linha in enumerate(valores[1:], start=2):
-            if len(linha) > 1 and str(linha[1]).strip().lower() == email_lower:
-                if novo_nome:
-                    sheet.update_cell(i, 1, novo_nome) # Atualiza Coluna A
-                if nova_senha:
-                    sheet.update_cell(i, 3, nova_senha) # Atualiza Coluna C
+            if len(linha) > idx_email and str(linha[idx_email]).strip().lower() == email_lower:
+                if novo_nome and 'nome' in cabecalho:
+                    sheet.update_cell(i, cabecalho.index('nome') + 1, novo_nome)
+                if nova_senha and 'senha' in cabecalho:
+                    sheet.update_cell(i, cabecalho.index('senha') + 1, nova_senha)
                 return True, "✅ Perfil atualizado com sucesso!"
+                
         return False, "Usuário não encontrado."
     except Exception as e:
         return False, f"Erro ao atualizar perfil: {e}"
