@@ -12,17 +12,38 @@ def render():
     if 'dicas_salvas' not in st.session_state:
         st.session_state.dicas_salvas = None
 
-    tipo_lancamento = st.pills(
-        "O que você deseja registrar?",
-        ["💰 1. Depósito de Dinheiro (Aporte)", "🛒 2. Compra de Ativos"],
-        default="💰 1. Depósito de Dinheiro (Aporte)"
+    # ==========================================
+    # NOVO SISTEMA DE ABAS (BOTÕES INTELIGENTES)
+    # ==========================================
+    if 'aba_lancamento' not in st.session_state:
+        st.session_state.aba_lancamento = "Depósitos"
+
+    def mudar_aba_lancamento(nova_aba):
+        st.session_state.aba_lancamento = nova_aba
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_aba1, c_aba2 = st.columns(2)
+    
+    c_aba1.button(
+        "💰 1. Depósito de Dinheiro (Aporte)", 
+        use_container_width=True, 
+        on_click=mudar_aba_lancamento, args=("Depósitos",),
+        type="primary" if st.session_state.aba_lancamento == "Depósitos" else "secondary"
     )
+
+    c_aba2.button(
+        "🛒 2. Compra de Ativos", 
+        use_container_width=True, 
+        on_click=mudar_aba_lancamento, args=("Compras",),
+        type="primary" if st.session_state.aba_lancamento == "Compras" else "secondary"
+    )
+    
     st.markdown("---")
 
     # ==========================================
     # 1. DEPÓSITO DE DINHEIRO
     # ==========================================
-    if tipo_lancamento == "💰 1. Depósito de Dinheiro (Aporte)":
+    if st.session_state.aba_lancamento == "Depósitos":
         st.subheader("Registrar novo Aporte")
         st.info("Lance aqui todo dinheiro 'novo' que saiu do seu bolso (conta corrente) para a corretora.")
         
@@ -40,7 +61,7 @@ def render():
     # ==========================================
     # 2. COMPRA DE ATIVOS 
     # ==========================================
-    elif tipo_lancamento == "🛒 2. Compra de Ativos":
+    elif st.session_state.aba_lancamento == "Compras":
         st.subheader("Registrar Compra")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
