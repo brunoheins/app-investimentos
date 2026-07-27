@@ -42,6 +42,9 @@ def motor_de_aportes(email, valor_aporte, num_compras):
 
     df_ativos_conf['Email'] = df_ativos_conf['Email'].astype(str).str.strip().str.lower()
     df_user_ativos = df_ativos_conf[df_ativos_conf['Email'] == email].copy()
+    
+    # Busca todas as cotações ao vivo no início do processo
+    cotacoes_dict = obter_cotacoes()
 
     # --- 1. LER ATIVOS ALVOS OFICIAIS ---
     ativos_alvos = []
@@ -60,7 +63,7 @@ def motor_de_aportes(email, valor_aporte, num_compras):
         df_alvos = pd.DataFrame(columns=['Categoria', 'Ativo', 'PesoGlobal', 'Is_Target'])
 
     # --- 2. LER ESTOQUE DA CARTEIRA REAL ---
-    df_carteira = pd.DataFrame(columns=['Categoria', 'Ativo', 'TotalAtual', 'PrecoAtual'])
+    df_carteira = pd.DataFrame(columns=['Categoria', 'Ativo', 'TotalAtual'])
     if not df_invest.empty and 'Email' in df_invest.columns:
         df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
         df_user_invest = df_invest[df_invest['Email'] == email].copy()
@@ -70,18 +73,14 @@ def motor_de_aportes(email, valor_aporte, num_compras):
             df_user_invest['Categoria'] = df_user_invest['Categoria'].apply(normalizar_categoria)
             df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(extrair_numero_br)
             
-            cotacoes_dict = obter_cotacoes()
             df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict).fillna(0.0)
             df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoLive']
 
             df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
-                'TotalAtual': 'sum',
-                'PrecoLive': 'last'
+                'TotalAtual': 'sum'
             }).reset_index()
-            df_carteira.rename(columns={'PrecoLive': 'PrecoAtual'}, inplace=True)
 
     # --- 3. MATEMÁTICA CORRIGIDA (OUTER JOIN) ---
-    # Agora todo centavo investido, mesmo em ativos velhos/ilegítimos, entra na conta da categoria!
     total_atual = df_carteira['TotalAtual'].sum() if not df_carteira.empty else 0
     total_futuro = total_atual + valor_aporte 
     
@@ -89,7 +88,9 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     df_calc['Is_Target'] = df_calc['Is_Target'].fillna(False)
     df_calc['PesoGlobal'] = df_calc['PesoGlobal'].fillna(0)
     df_calc['TotalAtual'] = df_calc['TotalAtual'].fillna(0)
-    df_calc['PrecoAtual'] = df_calc['PrecoAtual'].fillna(0)
+    
+    # A MÁGICA: Puxa o preço atualizado de todos os ativos da matriz para preencher quem estava vazio
+    df_calc['PrecoAtual'] = df_calc['Ativo'].map(cotacoes_dict).fillna(0.0)
     
     df_calc['ValorAlvo'] = df_calc['PesoGlobal'] * total_futuro
     df_calc['Falta_Comprar'] = df_calc['ValorAlvo'] - df_calc['TotalAtual']
@@ -102,12 +103,10 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     for i in range(num_compras):
         if aporte_restante <= 0.01: break
 
-        # A inteligência: Ele soma a defasagem da categoria incluindo TODA a sua grana (até a de ativos que vc não quer mais comprar)
         cat_gaps = df_calc.groupby('Categoria')['Falta_Comprar'].sum().sort_values(ascending=False)
         top_cat = cat_gaps.index[0]
         max_cat_gap = cat_gaps.iloc[0]
 
-        # Filtra os ativos permitidos para compra (Apenas os Targets oficiais)
         df_disponivel = df_calc[(df_calc['Is_Target'] == True) & (~df_calc['Ativo'].isin(ativos_comprados))]
         if df_disponivel.empty: break
 
