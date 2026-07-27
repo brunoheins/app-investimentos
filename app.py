@@ -34,7 +34,6 @@ if not st.session_state.logado:
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Sistema de Abas (Tabs) para organizar a interface
         tab_login, tab_cadastro, tab_esqueci = st.tabs(["Entrar", "Novo Cadastro", "Esqueci a Senha"])
         
         # --- ABA 1: LOGIN ---
@@ -108,7 +107,6 @@ if not st.session_state.logado:
                                 import random, string
                                 
                                 if verificar_email_cadastrado(esq_email):
-                                    # Gera um código alfanumérico de 6 dígitos
                                     codigo_gerado = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
                                     
                                     sucesso, msg = enviar_codigo_email(esq_email, codigo_gerado)
@@ -153,7 +151,6 @@ if not st.session_state.logado:
                                 if sucesso:
                                     st.success(msg)
                                     st.info("Acesse a aba 'Entrar' para fazer o login.")
-                                    # Limpa a memória para permitir novos acessos
                                     st.session_state.codigo_recuperacao = None
                                     st.session_state.email_recuperacao = None
                                 else:
@@ -164,30 +161,53 @@ if not st.session_state.logado:
 # TELA INTERNA (LOGADO)
 # ==========================================
 else:
-    st.sidebar.write(f"👤 **{st.session_state.nome}**")
-    st.sidebar.markdown("---")
-    
-    menu_selecionado = st.sidebar.radio(
-        "Navegação / Painéis:",
-        [
-            "💼 Resumo da Aplicação", 
-            "📈 Evolução do Saldo", 
-            "🎯 Guia de Aportes", 
-            "📝 Lançamentos", 
-            "⚙️ Configuração da Carteira",
-            "👤 Meu Perfil"
-        ]
+    # 1. Controlador de Navegação (Define a página inicial)
+    if 'pagina_atual' not in st.session_state:
+        st.session_state.pagina_atual = "Resumo"
+
+    def mudar_pagina(nome_pagina):
+        st.session_state.pagina_atual = nome_pagina
+
+    # 2. O Nome do Usuário agora é o botão direto para o Perfil!
+    st.sidebar.button(
+        f"👤 Meu Perfil ({st.session_state.nome})",
+        use_container_width=True,
+        on_click=mudar_pagina,
+        args=("Perfil",),
+        type="primary" if st.session_state.pagina_atual == "Perfil" else "secondary"
     )
-    
+
     st.sidebar.markdown("---")
-    if st.sidebar.button("Sair do App"):
+    st.sidebar.markdown("**Navegação / Painéis:**")
+
+    # 3. Menu transformado em botões com inteligência de "Estado Ativo"
+    opcoes_menu = {
+        "Resumo": "💼 Resumo da Aplicação",
+        "Saldo": "📈 Evolução do Saldo",
+        "Aportes": "🎯 Guia de Aportes",
+        "Lancamentos": "📝 Lançamentos",
+        "Configuracao": "⚙️ Configuração da Carteira"
+    }
+
+    for chave, icone_texto in opcoes_menu.items():
+        st.sidebar.button(
+            icone_texto,
+            use_container_width=True,
+            on_click=mudar_pagina,
+            args=(chave,),
+            # Se for a página atual, destaca o botão. Se não, fica cinza.
+            type="primary" if st.session_state.pagina_atual == chave else "secondary" 
+        )
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("Sair do App", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
-    # Roteamento 
-    if menu_selecionado == "💼 Resumo da Aplicação": resumo.render()
-    elif menu_selecionado == "📈 Evolução do Saldo": saldo.render()
-    elif menu_selecionado == "🎯 Guia de Aportes": aportes.render()
-    elif menu_selecionado == "📝 Lançamentos": lancamentos.render()
-    elif menu_selecionado == "⚙️ Configuração da Carteira": configuracao.render()
-    elif menu_selecionado == "👤 Meu Perfil": perfil.render()
+    # Roteamento
+    if st.session_state.pagina_atual == "Resumo": resumo.render()
+    elif st.session_state.pagina_atual == "Saldo": saldo.render()
+    elif st.session_state.pagina_atual == "Aportes": aportes.render()
+    elif st.session_state.pagina_atual == "Lancamentos": lancamentos.render()
+    elif st.session_state.pagina_atual == "Configuracao": configuracao.render()
+    elif st.session_state.pagina_atual == "Perfil": perfil.render()
