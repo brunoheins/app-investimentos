@@ -15,7 +15,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Importando as telas moduladas (Agora incluindo 'lancamentos')
+# Importando as telas moduladas
 from menu import resumo, saldo, aportes, configuracao, lancamentos
 
 # Controle de estado do Login
@@ -26,43 +26,50 @@ if 'logado' not in st.session_state:
 
 # --- TELA DE LOGIN ---
 if not st.session_state.logado:
-    st.title("🔑 Acesso ao Sistema de Investimentos")
+    # 1. Título centralizado via HTML
+    st.markdown("<h1 style='text-align: center;'>🔑 Acesso ao Sistema de Investimentos</h1>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True) # Adiciona um pequeno espaço para respirar
+    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        email_input = st.text_input("E-mail")
-        senha_input = st.text_input("Senha", type="password")
-        
-        if st.button("Entrar", use_container_width=True):
-            df_usuarios = ler_planilha("Usuarios")
-            if not df_usuarios.empty:
-                df_usuarios['Email'] = df_usuarios['Email'].astype(str).str.strip().str.lower()
-                df_usuarios['Senha'] = df_usuarios['Senha'].astype(str).str.strip()
-                
-                email_valido = email_input.strip().lower()
-                senha_valida = senha_input.strip()
-                
-                usuario = df_usuarios[(df_usuarios['Email'] == email_valido) & (df_usuarios['Senha'] == senha_valida)]
-                
-                if not usuario.empty:
-                    status_usuario = str(usuario.iloc[0]['Status']).strip()
-                    if status_usuario == 'Ativo':
-                        st.session_state.logado = True
-                        st.session_state.email = email_valido
-                        st.session_state.nome = usuario.iloc[0]['Nome']
-                        st.rerun()
+        # 2. Formulário que habilita o "Enter" nativo do teclado
+        with st.form("form_login"):
+            email_input = st.text_input("E-mail")
+            senha_input = st.text_input("Senha", type="password")
+            
+            # Este botão reage ao Enter automaticamente por estar dentro do st.form
+            submit = st.form_submit_button("Entrar", use_container_width=True)
+            
+            if submit:
+                df_usuarios = ler_planilha("Usuarios")
+                if not df_usuarios.empty:
+                    df_usuarios['Email'] = df_usuarios['Email'].astype(str).str.strip().str.lower()
+                    df_usuarios['Senha'] = df_usuarios['Senha'].astype(str).str.strip()
+                    
+                    email_valido = email_input.strip().lower()
+                    senha_valida = senha_input.strip()
+                    
+                    usuario = df_usuarios[(df_usuarios['Email'] == email_valido) & (df_usuarios['Senha'] == senha_valida)]
+                    
+                    if not usuario.empty:
+                        status_usuario = str(usuario.iloc[0]['Status']).strip()
+                        if status_usuario == 'Ativo':
+                            st.session_state.logado = True
+                            st.session_state.email = email_valido
+                            st.session_state.nome = usuario.iloc[0]['Nome']
+                            st.rerun()
+                        else:
+                            st.error("Seu acesso foi revogado pelo administrador.")
                     else:
-                        st.error("Seu acesso foi revogado pelo administrador.")
+                        st.error("Usuário ou senha incorretos.")
                 else:
-                    st.error("Usuário ou senha incorretos.")
-            else:
-                st.error("Erro ao acessar base de usuários.")
+                    st.error("Erro ao acessar base de usuários.")
 
 # --- APP AUTENTICADO ---
 else:
     st.sidebar.write(f"👤 Usuário: **{st.session_state.nome}**")
     st.sidebar.markdown("---")
     
-    # Adicionando o "📝 Lançamentos" nas opções da barra lateral
     menu_selecionado = st.sidebar.radio(
         "Navegação / Painéis:",
         [
