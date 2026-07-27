@@ -178,7 +178,7 @@ else:
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("**Navegação / Painéis:**")
+    #st.sidebar.markdown("**Navegação / Painéis:**")
 
     # 3. Menu transformado em botões com inteligência de "Estado Ativo"
     opcoes_menu = {
