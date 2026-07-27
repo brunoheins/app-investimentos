@@ -279,3 +279,68 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio):
     except Exception as e:
         st.error(f"Erro ao salvar compra: {e}")
         return False
+
+def conectar_planilha(aba):
+    """Função auxiliar para conectar e retornar a aba correta rapidamente"""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds_dict = json.loads(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    return client.open("App_Investimentos").worksheet(aba)
+
+def registrar_novo_usuario(nome, email, senha):
+    try:
+        sheet = conectar_planilha("Usuarios")
+        valores = sheet.get_all_values()
+        email_lower = email.strip().lower()
+        
+        if len(valores) > 1:
+            for linha in valores[1:]:
+                # Checa se o email (coluna 2, índice 1) já existe
+                if len(linha) > 1 and str(linha[1]).strip().lower() == email_lower:
+                    return False, "⚠️ Este e-mail já está cadastrado."
+                    
+        # Grava o novo usuário com status Pendente
+        sheet.append_row([nome.strip(), email_lower, senha, "Pendente"])
+        return True, "✅ Cadastro enviado com sucesso! Aguarde a liberação do administrador."
+    except Exception as e:
+        return False, f"Erro ao cadastrar: {e}"
+
+def alterar_senha_esquecida(email, nome, nova_senha):
+    try:
+        sheet = conectar_planilha("Usuarios")
+        valores = sheet.get_all_values()
+        email_lower = email.strip().lower()
+        nome_lower = nome.strip().lower()
+        
+        # Pula o cabeçalho e começa a contar da linha 2
+        for i, linha in enumerate(valores[1:], start=2): 
+            if len(linha) > 1:
+                planilha_nome = str(linha[0]).strip().lower()
+                planilha_email = str(linha[1]).strip().lower()
+                
+                # Como medida de segurança, o Nome e E-mail devem bater perfeitamente
+                if planilha_email == email_lower and planilha_nome == nome_lower:
+                    sheet.update_cell(i, 3, nova_senha) # Atualiza a Coluna C (Senha)
+                    return True, "✅ Senha alterada com sucesso! Você já pode fazer login."
+        
+        return False, "⚠️ Dados não conferem. Verifique se o Nome e E-mail estão exatamente iguais aos cadastrados."
+    except Exception as e:
+        return False, f"Erro ao redefinir senha: {e}"
+
+def atualizar_dados_perfil(email, novo_nome, nova_senha):
+    try:
+        sheet = conectar_planilha("Usuarios")
+        valores = sheet.get_all_values()
+        email_lower = email.strip().lower()
+        
+        for i, linha in enumerate(valores[1:], start=2):
+            if len(linha) > 1 and str(linha[1]).strip().lower() == email_lower:
+                if novo_nome:
+                    sheet.update_cell(i, 1, novo_nome) # Atualiza Coluna A
+                if nova_senha:
+                    sheet.update_cell(i, 3, nova_senha) # Atualiza Coluna C
+                return True, "✅ Perfil atualizado com sucesso!"
+        return False, "Usuário não encontrado."
+    except Exception as e:
+        return False, f"Erro ao atualizar perfil: {e}"
