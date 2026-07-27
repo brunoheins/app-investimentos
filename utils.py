@@ -3,6 +3,9 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 def extrair_numero_br(valor):
     """Converte strings de planilhas para float lidando com formatos BR e US automaticamente"""
@@ -320,37 +323,72 @@ def registrar_novo_usuario(nome, email, senha):
     except Exception as e:
         return False, f"Erro ao cadastrar: {e}"
 
-def alterar_senha_esquecida(email, nome, nova_senha):
+def verificar_email_cadastrado(email):
+    """Busca dinamicamente se o e-mail existe na base de dados"""
+    try:
+        sheet = conectar_planilha("Usuarios")
+        valores = sheet.get_all_values()
+        if not valores: return False
+        
+        cabecalho = [str(c).strip().lower() for c in valores[0]]
+        if 'email' not in cabecalho: return False
+        
+        idx_email = cabecalho.index('email')
+        email_lower = email.strip().lower()
+        
+        for linha in valores[1:]:
+            if len(linha) > idx_email and str(linha[idx_email]).strip().lower() == email_lower:
+                return True
+        return False
+    except:
+        return False
+
+def enviar_codigo_email(email_destino, codigo):
+    """Conecta ao Gmail e dispara o e-mail com o código de segurança"""
+    try:
+        # Puxa as credenciais seguras do Streamlit Secrets
+        remetente = st.secrets["email"]["endereco"]
+        senha_app = st.secrets["email"]["senha_app"]
+        
+        msg = MIMEMultipart()
+        msg['From'] = remetente
+        msg['To'] = email_destino
+        msg['Subject'] = "🔒 Código de Recuperação de Senha - App Investimentos"
+        
+        corpo = f"Olá!\n\nVocê solicitou a recuperação de senha no seu App de Investimentos.\n\nSeu código de segurança é: {codigo}\n\nSe você não solicitou esta alteração, apenas ignore este e-mail."
+        msg.attach(MIMEText(corpo, 'plain'))
+        
+        # Conexão com o servidor do Google
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(remetente, senha_app)
+        server.send_message(msg)
+        server.quit()
+        
+        return True, "E-mail enviado com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao enviar o e-mail. Verifique as configurações (secrets): {e}"
+
+def redefinir_senha_aprovada(email, nova_senha):
+    """Grava a nova senha no banco de dados de forma abstrata"""
     try:
         sheet = conectar_planilha("Usuarios")
         valores = sheet.get_all_values()
         if not valores: return False, "A aba Usuarios está vazia."
         
         cabecalho = [str(c).strip().lower() for c in valores[0]]
-        if 'email' not in cabecalho or 'nome' not in cabecalho or 'senha' not in cabecalho:
-            return False, "Colunas Nome, Email ou Senha não encontradas."
-            
         idx_email = cabecalho.index('email')
-        idx_nome = cabecalho.index('nome')
         idx_senha = cabecalho.index('senha')
-        
         email_lower = email.strip().lower()
-        nome_lower = nome.strip().lower()
         
-        # Procura o usuário dinamicamente
         for i, linha in enumerate(valores[1:], start=2): 
-            if len(linha) > max(idx_email, idx_nome):
-                planilha_email = str(linha[idx_email]).strip().lower()
-                planilha_nome = str(linha[idx_nome]).strip().lower()
-                
-                if planilha_email == email_lower and planilha_nome == nome_lower:
-                    # gspread usa índice 1-based (Coluna A = 1, B = 2...), por isso somamos 1 ao índice do Python
+            if len(linha) > max(idx_email, idx_senha):
+                if str(linha[idx_email]).strip().lower() == email_lower:
                     sheet.update_cell(i, idx_senha + 1, nova_senha) 
                     return True, "✅ Senha alterada com sucesso! Você já pode fazer login."
-        
-        return False, "⚠️ Dados não conferem. Verifique se o Nome e E-mail estão exatamente iguais aos cadastrados."
+        return False, "Usuário não encontrado."
     except Exception as e:
-        return False, f"Erro ao redefinir senha: {e}"
+        return False, f"Erro ao gravar nova senha: {e}"
 
 def atualizar_dados_perfil(email, novo_nome, nova_senha):
     try:
