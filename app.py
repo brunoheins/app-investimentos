@@ -21,6 +21,9 @@ if 'logado' not in st.session_state:
     st.session_state.logado = False
     st.session_state.email = ""
     st.session_state.nome = ""
+    # --- Variáveis para o fluxo de redefinição de senha ---
+    st.session_state.codigo_recuperacao = None
+    st.session_state.email_recuperacao = None
 
 # ==========================================
 # TELA DE ACESSO (DESLOGADO)
@@ -89,22 +92,72 @@ if not st.session_state.logado:
                             
         # --- ABA 3: ESQUECI A SENHA ---
         with tab_esqueci:
-            with st.form("form_esqueci", clear_on_submit=True):
-                st.info("Por segurança, você deve informar o E-mail e o Nome exato que utilizou no cadastro.")
-                esq_email = st.text_input("E-mail Cadastrado")
-                esq_nome = st.text_input("Nome exato (Como está no perfil)")
-                esq_nova_senha = st.text_input("Nova Senha", type="password")
-                
-                submit_esqueci = st.form_submit_button("Redefinir Minha Senha", use_container_width=True)
-                
-                if submit_esqueci:
-                    if not esq_email or not esq_nome or not esq_nova_senha:
-                        st.warning("Preencha todos os campos obrigatórios.")
-                    else:
-                        with st.spinner("Verificando credenciais..."):
-                            sucesso, msg = alterar_senha_esquecida(esq_email, esq_nome, esq_nova_senha)
-                            if sucesso: st.success(msg)
-                            else: st.error(msg)
+            if not st.session_state.codigo_recuperacao:
+                # ETAPA 1: Solicitar o E-mail e Disparar o Código
+                with st.form("form_pedir_codigo"):
+                    st.info("Digite seu e-mail cadastrado. Enviaremos um código de 6 caracteres para validar sua identidade.")
+                    esq_email = st.text_input("E-mail Cadastrado")
+                    submit_pedir = st.form_submit_button("Enviar Código de Segurança", use_container_width=True)
+                    
+                    if submit_pedir:
+                        if not esq_email:
+                            st.warning("Preencha o campo de e-mail.")
+                        else:
+                            with st.spinner("Verificando cadastro e enviando e-mail..."):
+                                from utils import verificar_email_cadastrado, enviar_codigo_email
+                                import random, string
+                                
+                                if verificar_email_cadastrado(esq_email):
+                                    # Gera um código alfanumérico de 6 dígitos
+                                    codigo_gerado = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                                    
+                                    sucesso, msg = enviar_codigo_email(esq_email, codigo_gerado)
+                                    if sucesso:
+                                        st.session_state.codigo_recuperacao = codigo_gerado
+                                        st.session_state.email_recuperacao = esq_email.strip().lower()
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                                else:
+                                    st.error("Este e-mail não foi encontrado em nossa base de dados.")
+            else:
+                # ETAPA 2: Validar o Código e Gravar Nova Senha
+                with st.form("form_nova_senha"):
+                    st.success(f"📧 O código foi enviado para **{st.session_state.email_recuperacao}**!")
+                    
+                    codigo_digitado = st.text_input("Digite o código de 6 caracteres")
+                    st.markdown("---")
+                    esq_nova_senha = st.text_input("Nova Senha", type="password")
+                    esq_confirma_senha = st.text_input("Confirme a Nova Senha", type="password")
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    submit_validar = c_btn1.form_submit_button("Salvar Nova Senha", use_container_width=True)
+                    submit_cancelar = c_btn2.form_submit_button("Cancelar", use_container_width=True)
+                    
+                    if submit_cancelar:
+                        st.session_state.codigo_recuperacao = None
+                        st.session_state.email_recuperacao = None
+                        st.rerun()
+                        
+                    if submit_validar:
+                        if not codigo_digitado or not esq_nova_senha or not esq_confirma_senha:
+                            st.warning("Preencha todos os campos obrigatórios.")
+                        elif codigo_digitado.strip().upper() != st.session_state.codigo_recuperacao:
+                            st.error("❌ Código incorreto. Verifique o e-mail e tente novamente.")
+                        elif esq_nova_senha != esq_confirma_senha:
+                            st.error("❌ As senhas não conferem.")
+                        else:
+                            with st.spinner("Atualizando credenciais..."):
+                                from utils import redefinir_senha_aprovada
+                                sucesso, msg = redefinir_senha_aprovada(st.session_state.email_recuperacao, esq_nova_senha)
+                                if sucesso:
+                                    st.success(msg)
+                                    st.info("Acesse a aba 'Entrar' para fazer o login.")
+                                    # Limpa a memória para permitir novos acessos
+                                    st.session_state.codigo_recuperacao = None
+                                    st.session_state.email_recuperacao = None
+                                else:
+                                    st.error(msg)
 
 
 # ==========================================
