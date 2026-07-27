@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from utils import ler_planilha, registrar_novo_usuario, alterar_senha_esquecida
+from utils import ler_planilha, registrar_novo_usuario
 
 st.set_page_config(page_title="App Investimentos v1.0", layout="wide")
 
