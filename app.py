@@ -151,13 +151,9 @@ if not st.session_state.logado:
     pg.run()
     
 else:
-    # Perfil do usuário e Botão de Sair fixos no rodapé ou topo do menu
-    #st.sidebar.markdown(f"### 👤 {st.session_state.nome}")
-    #st.sidebar.markdown("---")
-
-    # Mapeando os módulos com ícones nativos, agrupados e com URLs únicas!
+    # 1. Mapeamento nativo ajustado para o fluxo Operacional
     pg = st.navigation({
-        f"👤 {st.session_state.nome}": [
+        f"Usuário: {st.session_state.nome}": [
             st.Page(perfil.render, title="Meu Perfil", icon="👤", url_path="perfil")
         ],
         "Visão Geral": [
@@ -167,12 +163,13 @@ else:
         "Operacional": [
             st.Page(aportes.render, title="Guia de Aportes", icon="🎯", url_path="aportes"),
             st.Page(lancamentos.render, title="Central de Lançamentos", icon="📝", url_path="lancamentos"),
-            st.Page(configuracao.render, title="Configuração da Carteira", icon="⚙️", url_path="configuracao"),
+            st.Page(configuracao.render, title="Configuração da Carteira", icon="⚙️", url_path="configuracao")
         ]
     })
     
+    # 2. Executa a construção do menu lateral primeiro
+    pg.run()
+
+    # 3. Adiciona o botão de logout logo abaixo do menu nativo
     st.sidebar.markdown("---")
     st.sidebar.button("🚪 Sair do App", on_click=fazer_logout, use_container_width=True)
-
-    # Executa a navegação gerada pelo Streamlit
-    pg.run()
