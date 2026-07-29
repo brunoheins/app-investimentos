@@ -67,7 +67,7 @@ Etapa 1: Pede o e-mail, gera um token alfanumérico de 6 dígitos e envia via SM
 Etapa 2: Valida o token contra o armazenado na sessão antes de atualizar o banco de dados.
 
 ### C. Padrões de Interface (UI/UX)
-Botões de Ação Principal: Devem sempre utilizar componentes nativos (st.button) com os parâmetros use_container_width=True e type="primary".
+Botões de Ação Principal: Devem sempre utilizar componentes nativos (st.button) com o parâmetro use_container_width=True. Não utilize type="primary" nos botões de salvar, pois o padrão visual do sistema é manter os botões na cor secundária/neutra (cinza).
 
 Gráficos: Sempre usar use_container_width=True na plotagem do Plotly.
 
@@ -130,4 +130,6 @@ senha_app = "sua_senha_de_app_de_16_caracteres"
 ### 3. Rodar a Aplicação
 Bash
 streamlit run app.py
-🤖 Nota para Assistentes de IA / LLMs: Ao receber este arquivo como contexto para implementar novas funcionalidades, mantenha a modularidade das telas dentro da pasta /menu/, sempre declare as variáveis no st.session_state antes do seu uso, utilize botões nativos (st.button) em vez de HTML, e manipule o banco de dados de forma abstrata passando as regras exclusivamente para o arquivo utils.py.
+
+## 🤖 Nota para Assistentes de IA / LLMs: 
+Ao receber este arquivo como contexto para implementar novas funcionalidades, mantenha a modularidade das telas dentro da pasta /menu/, sempre declare as variáveis no st.session_state antes do seu uso, utilize botões nativos (st.button) mantendo o padrão visual cinza (sem type="primary" em botões de formulário), e manipule o banco de dados de forma abstrata passando as regras exclusivamente para o arquivo utils.py.
