@@ -147,7 +147,7 @@ if not st.session_state.logado:
     st.markdown("""<style>[data-testid="collapsedControl"] {display: none;}</style>""", unsafe_allow_html=True)
     
     # Define o login como a única página existente
-    pg = st.navigation([st.Page(tela_acesso, title="Acesso Restrito")])
+    pg = st.navigation([st.Page(tela_acesso, title="Acesso Restrito", url_path="login")])
     pg.run()
     
 else:
@@ -156,19 +156,19 @@ else:
     st.sidebar.button("🚪 Sair do App", on_click=fazer_logout, use_container_width=True)
     st.sidebar.markdown("---")
 
-    # Mapeando os módulos com ícones nativos e agrupados!
+    # Mapeando os módulos com ícones nativos, agrupados e com URLs únicas!
     pg = st.navigation({
         "Visão Geral": [
-            st.Page(resumo.render, title="Resumo da Aplicação", icon="💼", default=True),
-            st.Page(saldo.render, title="Evolução do Saldo", icon="📈")
+            st.Page(resumo.render, title="Resumo da Aplicação", icon="💼", default=True, url_path="resumo"),
+            st.Page(saldo.render, title="Evolução do Saldo", icon="📈", url_path="saldo")
         ],
         "Operacional": [
-            st.Page(aportes.render, title="Guia de Aportes", icon="🎯"),
-            st.Page(lancamentos.render, title="Central de Lançamentos", icon="📝")
+            st.Page(aportes.render, title="Guia de Aportes", icon="🎯", url_path="aportes"),
+            st.Page(lancamentos.render, title="Central de Lançamentos", icon="📝", url_path="lancamentos")
         ],
         "Minha Conta": [
-            st.Page(configuracao.render, title="Configuração da Carteira", icon="⚙️"),
-            st.Page(perfil.render, title="Meu Perfil", icon="👤")
+            st.Page(configuracao.render, title="Configuração da Carteira", icon="⚙️", url_path="configuracao"),
+            st.Page(perfil.render, title="Meu Perfil", icon="👤", url_path="perfil")
         ]
     })
     
