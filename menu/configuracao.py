@@ -250,8 +250,8 @@ def render():
                     st.warning(f"⚠️ Soma: **{soma_pesos:.2f}%** (O ideal é 100%)")
             
             with col_btn:
-                # Botão de salvar em destaque (primary)
-                if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True, type="primary"):
+                # Botão sem o type="primary" para manter o padrão cinza
+                if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
