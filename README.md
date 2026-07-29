@@ -1,155 +1,129 @@
-# app-investimentos
+# 📈 App Investimentos - Sistema de Gestão de Carteira
 
-# Documentação Funcional e Técnica: App de Investimentos
+Este é um aplicativo web desenvolvido em **Python + Streamlit** para gestão de portfólio de investimentos. Ele permite definir metas de alocação (macro e micro), registrar aportes, lançar compras de ativos e calcular automaticamente o rebalanceamento ideal da carteira com base na defasagem dos ativos.
 
-Esta documentação detalha o processo de criação, configuração e implantação do aplicativo de investimentos construído com Streamlit, utilizando o Google Sheets como banco de dados e o GitHub para controle de versão e hospedagem no Streamlit Community Cloud. O código-fonte está disponível em https://github.com/brunoheins/app-investimentos/.
+---
 
-## 1. Visão Geral da Arquitetura
-* **Frontend & Lógica:** Streamlit (Python).
-* **Banco de Dados:** Google Sheets (acessado via API do Google Cloud).
-* **Controle de Versão:** GitHub.
-* **Deploy (Hospedagem):** Streamlit Community Cloud.
+## 🏗️ Arquitetura do Projeto para IA (Contexto Mestre)
 
-## 2. Passo a Passo: Criação e Configuração do Banco de Dados (Google Sheets)
-O aplicativo utiliza uma planilha do Google Sheets chamada `App_Investimentos` como seu banco de dados relacional. É crucial que a estrutura das abas seja mantida para o correto funcionamento da aplicação.
+Este projeto foi construído de forma modular para facilitar a manutenção e escalabilidade. Qualquer IA assistente atuando neste repositório deve respeitar a estrutura abaixo:
 
-### 2.1. Estrutura da Planilha `App_Investimentos`
-Crie uma nova planilha no seu Google Drive com o nome exato **App_Investimentos**. Adicione as seguintes abas (worksheets) e seus respectivos cabeçalhos na primeira linha:
-
-#### Aba: Usuarios
-| Email | Senha | Nome | Status |
-| :--- | :--- | :--- | :--- |
-| seu_email@exemplo.com | sua_senha | Seu Nome | Ativo |
-
-#### Aba: Configuracao
-Armazena as metas de alocação macro (em %).
-| Email | RF | RV | RV_Brasil | RV_Exterior | BR_Acoes | BR_FIIs | EX_Stocks | EX_REITs | EX_ETFs |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| seu_email@exemplo.com | 50 | 50 | 50 | 50 | 50 | 50 | 40 | 30 | 30 |
-
-#### Aba: Ativos_Config
-Armazena a composição de ativos e seus respectivos pesos (em %) dentro de cada categoria.
-| Email | Categoria | Ativo | Peso |
-| :--- | :--- | :--- | :--- |
-| seu_email@exemplo.com | Ações | PETR4 | 50.0 |
-
-## 3. Passo a Passo: Integração com a API do Google Cloud (GCP)
-Para que a aplicação Streamlit possa ler e gravar dados na planilha, é necessário criar credenciais de serviço no Google Cloud Platform.
-
-1. Acesse o [Google Cloud Console](https://console.cloud.google.com/).
-2. Crie um novo projeto (ex: `StreamlitAppInvestimentos`).
-3. Navegue até **APIs e Serviços > Biblioteca**.
-4. Pesquise e ative as seguintes APIs:
-   * **Google Drive API**
-   * **Google Sheets API**
-5. Vá para **APIs e Serviços > Credenciais**.
-6. Clique em **Criar Credenciais > Conta de Serviço**.
-7. Preencha o nome da conta (ex: `streamlit-sheets-access`) e conclua a criação.
-8. Na lista de Contas de Serviço, clique no e-mail recém-criado. Vá na aba **Chaves**.
-9. Clique em **Adicionar Chave > Criar nova chave**. Escolha o formato **JSON**. O arquivo será baixado para o seu computador (nome similar a `credenciais.json`).
-10. **ATENÇÃO:** Abra o arquivo JSON baixado e localize o campo `client_email`. Copie esse endereço de e-mail.
-11. Vá até a sua planilha `App_Investimentos` no Google Drive, clique em **Compartilhar** e adicione o e-mail copiado com permissão de **Editor**.
-
-## 4. Passo a Passo: Preparação do Ambiente Local e GitHub
-
-### 4.1. Estrutura do Repositório Local
-No seu computador, crie uma pasta para o projeto e adicione os seguintes arquivos essenciais:
-
+### 1. Estrutura de Arquivos
 ```text
-app-investimentos/
+/app-investimentos-main/
 │
-├── app.py                # Arquivo principal contendo todo o código Streamlit/Python
-├── requirements.txt      # Dependências do projeto
-├── .gitignore            # Arquivos ignorados pelo Git
-└── .streamlit/
-    └── secrets.toml      # Suas credenciais (APENAS PARA USO LOCAL - NÃO COMITAR)
-```
+├── app.py                 # Ponto de entrada (Entrypoint). Gerencia Login, 2FA e st.navigation.
+├── utils.py               # Motor de regras (Banco de Dados, Autenticação, Disparo de E-mails).
+├── requirements.txt       # Dependências do projeto (streamlit, pandas, plotly, gspread, etc).
+│
+└── menu/                  # Módulos das telas (Roteamento nativo)
+    ├── __init__.py        
+    ├── resumo.py          # Dashboard geral com gráficos (Plotly).
+    ├── saldo.py           # Gráfico de evolução patrimonial histórica.
+    ├── aportes.py         # Motor de rebalanceamento (Onde investir o próximo aporte).
+    ├── lancamentos.py     # Inputs de novos depósitos e registro de compras de ativos.
+    ├── configuracao.py    # Definição de metas Macro (ex: RF vs RV) e Micro (Pesos por Ativo).
+    └── perfil.py          # Edição de dados do usuário e alteração de senha.
+2. Stack Tecnológico
+Frontend/Roteamento: Streamlit (st.navigation, st.Page, st.tabs, st.pills).
 
-### 4.2. O Arquivo `requirements.txt`
-Este arquivo informa ao Streamlit Cloud quais bibliotecas instalar. Exemplo:
+Manipulação de Dados: Pandas (pd.DataFrame).
 
-```text
-streamlit==1.41.0
-pandas==2.2.3
-gspread==6.1.4
-google-auth==2.37.0
-plotly==5.24.1
-```
+Visualização: Plotly Express (px.pie, etc.).
 
-### 4.3. Configuração de Segredos Locais (Opcional, para testes)
-Crie uma pasta oculta chamada `.streamlit` e dentro dela um arquivo `secrets.toml`. Adicione o conteúdo do seu arquivo JSON baixado do GCP no seguinte formato:
+Banco de Dados (BaaS): Google Sheets API via biblioteca gspread e google.oauth2.
 
-```toml
-gcp_service_account = '''
-{
-  "type": "service_account",
-  "project_id": "seu-projeto-id",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
-  "client_email": "seu-email@seu-projeto.iam.gserviceaccount.com",
-  "client_id": "...",
-  "auth_uri": "[https://accounts.google.com/o/oauth2/auth](https://accounts.google.com/o/oauth2/auth)",
-  "token_uri": "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
-  "auth_provider_x509_cert_url": "[https://www.googleapis.com/oauth2/v1/certs](https://www.googleapis.com/oauth2/v1/certs)",
-  "client_x509_cert_url": "..."
-}
-'''
-```
-**IMPORTANTE:** O arquivo `secrets.toml` e o JSON original **NUNCA** devem ser enviados (comitados) para o GitHub.
+Segurança e Notificações: Disparo de e-mails via smtplib usando Gmail (App Passwords) para Autenticação de 2 Fatores (2FA) na recuperação de senha.
 
-### 4.4. O Arquivo `.gitignore`
-Para evitar vazamento de credenciais, crie um arquivo `.gitignore` com o conteúdo:
+⚙️ Especificação Técnica e Regras de Negócio
+A. Gestão de Estado (Session State)
+O aplicativo depende fortemente do st.session_state para persistir informações. Variáveis essenciais que a IA não deve sobrescrever acidentalmente:
 
-```text
-.streamlit/
-credenciais.json
-__pycache__/
-```
+st.session_state.logado (Booleano)
 
-### 4.5. Enviando para o GitHub
-1. Crie um repositório vazio no GitHub (ex: `app-investimentos`).
-2. No terminal da sua máquina, dentro da pasta do projeto, execute:
+st.session_state.email (Chave primária do usuário nas queries)
 
-```bash
-git init
-git add .
-git commit -m "Commit inicial do App de Investimentos"
-git branch -M main
-git remote add origin [https://github.com/brunoheins/app-investimentos.git](https://github.com/brunoheins/app-investimentos.git)
-git push -u origin main
-```
+st.session_state.nome (Usado para UI)
 
-## 5. Passo a Passo: Deploy (Implantação) no Streamlit Community Cloud
-O Streamlit Community Cloud gerencia a hospedagem e detecta automaticamente novas atualizações (commits) feitas no repositório GitHub.
+st.session_state.codigo_recuperacao / email_recuperacao (Fluxo de 2FA)
 
-1. Acesse [share.streamlit.io](https://share.streamlit.io/) e faça login (recomenda-se usar a conta conectada ao GitHub).
-2. Clique em **New app**.
-3. Selecione **Use existing repo** (Usar repositório existente).
-4. Preencha as informações:
-   * **Repository:** `brunoheins/app-investimentos`
-   * **Branch:** `main`
-   * **Main file path:** `app.py`
-5. **PASSO CRÍTICO - Gerenciamento de Segredos (Secrets):** Antes de clicar em "Deploy", clique em **Advanced settings** (Configurações avançadas).
-6. No campo *Secrets*, cole o conteúdo do seu arquivo `secrets.toml` (criado no passo 4.3). O formato deve ser idêntico ao local.
-7. Clique em **Save** e, em seguida, em **Deploy**.
+st.session_state.dicas_salvas (Cache do motor de aportes na tela de Lançamentos)
 
-## 6. Fluxo de Atualização (CI/CD)
-Uma vez que o app está configurado, o processo de atualização (deploy) é automático.
+st.session_state.backup_macro (Cofre de restauração para a tela de Configuração)
 
-1. Você realiza alterações no código (ex: modificando o `app.py` no seu computador).
-2. Comita as alterações via Git:
+st.session_state.aba_lancamento e st.session_state.aba_config (Navegação interna via botões inteligentes).
 
-```bash
-git add app.py
-git commit -m "Nova melhoria na UI"
-git push origin main
-```
+B. Fluxo de Autenticação e Segurança
+Cadastro: Novos usuários são registrados com status "Pendente". Requer liberação manual do admin na planilha.
 
-3. O Streamlit Cloud detecta o "push" no branch `main` e reinicia a aplicação automaticamente com a nova versão, mantendo as credenciais seguras.
+Login: Acesso restrito. E-mail é tratado sempre com .strip().lower() para evitar falhas.
 
-## 7. Principais Funcionalidades do Código (Referência Técnica)
-* **Leitura de Planilhas:** Utiliza a biblioteca `gspread` autenticada com as credenciais do GCP. A função principal é `ler_planilha(nome_aba)`, que retorna um DataFrame do `pandas`.
-* **Escrita de Dados:** Funções como `salvar_configuracao` e `salvar_ativos_categoria` fazem buscas na planilha, atualizam as linhas correspondentes ao usuário (email) e reescrevem os dados usando o método `sheet.update()`.
-* **Gerenciamento de Estado:** O `st.session_state` é intensamente utilizado para manter informações entre recarregamentos da página, como o usuário logado (`email`), a aba ativa no menu de configurações e os valores temporários digitados nos inputs.
-* **Otimização de Layout:** Injeção de CSS personalizado via `st.markdown` para compactar margens, reduzir tamanho de fontes e melhorar a exibição em monitores menores (ex: 14 polegadas).
-* **Navegação Visual:** Substituição das abas nativas do Streamlit (`st.tabs`) por botões de navegação personalizados para maior destaque e controle de estado usando o parâmetro `type="primary"`/`type="secondary"`.
+Recuperação de Senha (2FA):
+
+Etapa 1: Pede o e-mail, gera um token alfanumérico de 6 dígitos e envia via SMTP do Gmail.
+
+Etapa 2: Valida o token contra o armazenado na sessão antes de atualizar o banco de dados.
+
+C. Padrões de Interface (UI/UX)
+Botões de Ação Principal: Devem sempre utilizar componentes nativos (st.button) com os parâmetros use_container_width=True e type="primary".
+
+Gráficos: Sempre usar use_container_width=True na plotagem do Plotly.
+
+📊 Guia de Estruturação do Banco de Dados (Google Sheets)
+O sistema utiliza o Google Sheets como banco de dados. A leitura feita pelo arquivo utils.py é abstrata, ou seja, ele lê a primeira linha de cada aba para descobrir em qual coluna estão os dados (ex: cabecalho.index('email')).
+
+Para o sistema funcionar perfeitamente, crie uma planilha chamada App_Investimentos e crie as seguintes abas (o nome da aba deve ser exato, e a Linha 1 deve conter exatamente os nomes das colunas abaixo):
+
+Aba 1: Usuarios
+Gerencia o acesso ao sistema.
+
+Colunas (Linha 1): Nome | Email | Senha | Status
+
+Nota: O campo Status deve conter "Ativo", "Pendente" ou "Bloqueado". O admin deve mudar manualmente de Pendente para Ativo após o cadastro.
+
+Aba 2: Configuracao
+Guarda as metas Macro de cada usuário (A soma final é garantida pela lógica do frontend).
+
+Colunas (Linha 1): Email | RF | RV | RV_Brasil | RV_Exterior | BR_Acoes | BR_FIIs | EX_Stocks | EX_REITs | EX_ETFs
+
+Aba 3: Ativos_Config
+Guarda os ativos escolhidos pelo usuário e seus pesos desejados por categoria.
+
+Colunas (Linha 1): Email | Categoria | Ativo | Peso
+
+Aba 4: Aportes
+Registra as entradas de dinheiro (depósitos) enviadas para a corretora.
+
+Colunas (Linha 1): Email | Data | Valor
+
+Aba 5: Lancamentos
+Registra o histórico de compras de ativos.
+
+Colunas (Linha 1): Email | Data | Categoria | Ativo | Quantidade | Preco
+
+Aba 6: Cotacao
+(Uso pelo motor de aportes e atualização de saldo). Aba contendo o preço atualizado dos ativos.
+
+Colunas (Linha 1): Categoria | Ativo | Preco_Atual
+
+🚀 Como Executar o Projeto
+1. Clonar e Instalar Dependências
+Bash
+git clone [https://github.com/seu-usuario/app-investimentos.git](https://github.com/seu-usuario/app-investimentos.git)
+cd app-investimentos
+pip install -r requirements.txt
+2. Configurar Variáveis de Ambiente (Secrets)
+Crie um diretório .streamlit na raiz do projeto e dentro dele um arquivo secrets.toml contendo as credenciais do Google Cloud e do e-mail disparador:
+
+Ini, TOML
+# Credenciais da Service Account do Google Cloud (GCP)
+gcp_service_account = '{"type": "service_account", "project_id": "...", "private_key": "...", ...}'
+
+# Credenciais de e-mail para 2FA
+[email]
+endereco = "seu-email@gmail.com"
+senha_app = "sua_senha_de_app_de_16_caracteres"
+3. Rodar a Aplicação
+Bash
+streamlit run app.py
+🤖 Nota para Assistentes de IA / LLMs: Ao receber este arquivo como contexto para implementar novas funcionalidades, mantenha a modularidade das telas dentro da pasta /menu/, sempre declare as variáveis no st.session_state antes do seu uso, utilize botões nativos (st.button) em vez de HTML, e manipule o banco de dados de forma abstrata passando as regras exclusivamente para o arquivo utils.py.
