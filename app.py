@@ -152,12 +152,12 @@ if not st.session_state.logado:
     
 else:
     # Perfil do usuário e Botão de Sair fixos no rodapé ou topo do menu
-    st.sidebar.markdown(f"### 👤 {st.session_state.nome}")
-    st.sidebar.markdown("---")
+    #st.sidebar.markdown(f"### 👤 {st.session_state.nome}")
+    #st.sidebar.markdown("---")
 
     # Mapeando os módulos com ícones nativos, agrupados e com URLs únicas!
     pg = st.navigation({
-        "Minha Conta": [
+        f"👤 {st.session_state.nome}": [
             st.Page(perfil.render, title="Meu Perfil", icon="👤", url_path="perfil")
         ],
         "Visão Geral": [
