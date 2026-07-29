@@ -171,5 +171,5 @@ else:
     pg.run()
 
     # 3. Adiciona o botão de logout logo abaixo do menu nativo
-    st.sidebar.markdown("---")
+    #st.sidebar.markdown("---")
     st.sidebar.button("🚪 Sair do App", on_click=fazer_logout, use_container_width=True)
