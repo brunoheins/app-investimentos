@@ -140,27 +140,6 @@ def render():
         col_hist1, col_hist2 = st.columns(2)
         
         with col_hist1:
-            st.subheader("🛒 Histórico de Compras")
-            df_compras = ler_planilha("Investimentos")
-            if not df_compras.empty and 'Email' in df_compras.columns:
-                # Filtra apenas os dados deste usuário
-                df_compras['Email'] = df_compras['Email'].astype(str).str.strip().str.lower()
-                minhas_compras = df_compras[df_compras['Email'] == st.session_state.email].copy()
-                
-                if not minhas_compras.empty:
-                    # Remove a coluna de E-mail (não precisa mostrar para ele mesmo)
-                    minhas_compras = minhas_compras.drop(columns=['Email'])
-                    
-                    # Inverte a ordem para mostrar os mais recentes primeiro
-                    minhas_compras = minhas_compras.iloc[::-1]
-                    
-                    st.dataframe(minhas_compras, use_container_width=True, hide_index=True)
-                else:
-                    st.info("Nenhuma compra registrada no banco de dados.")
-            else:
-                st.info("Banco de dados de compras vazio.")
-
-        with col_hist2:
             st.subheader("💰 Histórico de Depósitos")
             # Conforme validamos, sua aba chama-se "Depositos"
             df_depositos = ler_planilha("Depositos") 
@@ -181,3 +160,25 @@ def render():
                     st.info("Nenhum depósito registrado no banco de dados.")
             else:
                 st.info("Banco de dados de depósitos vazio.")
+
+        with col_hist2:
+                        st.subheader("🛒 Histórico de Compras")
+            df_compras = ler_planilha("Investimentos")
+            if not df_compras.empty and 'Email' in df_compras.columns:
+                # Filtra apenas os dados deste usuário
+                df_compras['Email'] = df_compras['Email'].astype(str).str.strip().str.lower()
+                minhas_compras = df_compras[df_compras['Email'] == st.session_state.email].copy()
+                
+                if not minhas_compras.empty:
+                    # Remove a coluna de E-mail (não precisa mostrar para ele mesmo)
+                    minhas_compras = minhas_compras.drop(columns=['Email'])
+                    
+                    # Inverte a ordem para mostrar os mais recentes primeiro
+                    minhas_compras = minhas_compras.iloc[::-1]
+                    
+                    st.dataframe(minhas_compras, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Nenhuma compra registrada no banco de dados.")
+            else:
+                st.info("Banco de dados de compras vazio.")
+                
