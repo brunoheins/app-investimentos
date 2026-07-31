@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils import registrar_deposito, registrar_compra, obter_ativos_por_categoria, formata_br, ler_planilha
+from utils import registrar_deposito, registrar_compra, obter_ativos_por_categoria, formata_br, ler_planilha, atualizar_historico_usuario
 from menu.aportes import motor_de_aportes # <-- IMPORTA O CÉREBRO DE APORTES!
 
 def render():
@@ -129,20 +129,18 @@ def render():
                     st.success(f"Compra de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
 
     # ==========================================
-    # AUDITORIA DE LANÇAMENTOS (HISTÓRICO)
+    # AUDITORIA E EDIÇÃO DE LANÇAMENTOS
     # ==========================================
     st.markdown("---")
     
-    with st.expander("🔍 Histórico e Auditoria de Lançamentos"):
-        st.markdown("Consulte abaixo o histórico das suas últimas operações para auditoria.")
+    with st.expander("🔍 Histórico, Edição e Auditoria de Lançamentos"):
+        st.markdown("Consulte seu histórico abaixo. Para **editar**, dê um duplo clique na célula. Para **excluir**, clique na linha e aperte a tecla `Delete`. Depois, clique no botão de salvar.")
         
-        # Cria duas colunas para mostrar Depósitos na esquerda e Compras na direita
         col_hist1, col_hist2 = st.columns(2)
         
         # --- COLUNA ESQUERDA: DEPÓSITOS ---
         with col_hist1:
-            st.subheader("💰 Histórico de Depósitos")
-            # Lê a aba "Depositos"
+            st.subheader("💰 Editar Depósitos")
             df_depositos = ler_planilha("Depositos") 
             if not df_depositos.empty and 'Email' in df_depositos.columns:
                 df_depositos['Email'] = df_depositos['Email'].astype(str).str.strip().str.lower()
@@ -150,29 +148,53 @@ def render():
                 
                 if not meus_depositos.empty:
                     meus_depositos = meus_depositos.drop(columns=['Email'])
-                    meus_depositos = meus_depositos.iloc[::-1]
-                    st.dataframe(meus_depositos, use_container_width=True, hide_index=True)
+                    
+                    # O editor substitui o dataframe estático
+                    df_depositos_editado = st.data_editor(
+                        meus_depositos, 
+                        num_rows="dynamic", # Permite adicionar e excluir linhas
+                        use_container_width=True, 
+                        hide_index=True,
+                        key="editor_depositos"
+                    )
+                    
+                    if st.button("💾 Salvar Alterações (Depósitos)", use_container_width=True):
+                        with st.spinner("Atualizando depósitos..."):
+                            if atualizar_historico_usuario(st.session_state.email, "Depositos", df_depositos_editado):
+                                st.success("Depósitos atualizados com sucesso!")
+                                st.rerun()
                 else:
-                    st.info("Nenhum depósito registrado no banco de dados.")
+                    st.info("Nenhum depósito registrado.")
             else:
-                st.info("Banco de dados de depósitos vazio.")
+                st.info("Banco de dados vazio.")
 
-        # --- COLUNA DIREITA: COMPRAS ---
+        # --- COLUNA DIREITA: COMPRAS (INVESTIMENTOS) ---
         with col_hist2:
-            st.subheader("🛒 Histórico de Compras")
-            # Lê a aba "Lancamentos"
-            df_compras = ler_planilha("Investimentos")
+            st.subheader("🛒 Editar Compras")
+            df_compras = ler_planilha("Investimentos") # Atualizado para a aba correta
             if not df_compras.empty and 'Email' in df_compras.columns:
                 df_compras['Email'] = df_compras['Email'].astype(str).str.strip().str.lower()
                 minhas_compras = df_compras[df_compras['Email'] == st.session_state.email].copy()
                 
                 if not minhas_compras.empty:
                     minhas_compras = minhas_compras.drop(columns=['Email'])
-                    minhas_compras = minhas_compras.iloc[::-1]
-                    st.dataframe(minhas_compras, use_container_width=True, hide_index=True)
+                    
+                    df_compras_editado = st.data_editor(
+                        minhas_compras, 
+                        num_rows="dynamic", 
+                        use_container_width=True, 
+                        hide_index=True,
+                        key="editor_compras"
+                    )
+                    
+                    if st.button("💾 Salvar Alterações (Compras)", use_container_width=True, type="primary"):
+                        with st.spinner("Atualizando carteira..."):
+                            if atualizar_historico_usuario(st.session_state.email, "Investimentos", df_compras_editado):
+                                st.success("Compras atualizadas com sucesso!")
+                                st.rerun()
                 else:
-                    st.info("Nenhuma compra registrada no banco de dados.")
+                    st.info("Nenhuma compra registrada.")
             else:
-                st.info("Banco de dados de compras vazio.")
+                st.info("Banco de dados vazio.")
                 st.info("Banco de dados de compras vazio.")
                 
