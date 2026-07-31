@@ -179,7 +179,7 @@ def render():
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if st.button("🚀 Calcular Onde Aportar", use_container_width=True):
+    if st.button("🚀 Calcular Onde Aportar", use_container_width=True, type="primary"):
         if valor_aporte <= 0:
             st.warning("Insira um valor maior que zero para o aporte.")
             return
