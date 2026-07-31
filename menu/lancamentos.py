@@ -141,7 +141,7 @@ def render():
         
         with col_hist1:
             st.subheader("🛒 Histórico de Compras")
-            df_compras = ler_planilha("Lancamentos")
+            df_compras = ler_planilha("Investimentos")
             if not df_compras.empty and 'Email' in df_compras.columns:
                 # Filtra apenas os dados deste usuário
                 df_compras['Email'] = df_compras['Email'].astype(str).str.strip().str.lower()
