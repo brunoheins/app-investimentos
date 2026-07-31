@@ -52,7 +52,7 @@ def render():
             data_deposito = col1.date_input("Data do Depósito", value=datetime.today(), format="DD/MM/YYYY")
             valor_deposito = col2.number_input("Valor (R$)", min_value=0.00, value=1000.00, step=100.0, format="%.2f")
             
-            submit = st.form_submit_button("💾 Salvar Depósito", use_container_width=True)
+            submit = st.form_submit_button("💾 Salvar Depósito", use_container_width=True, type="primary")
             if submit:
                 data_str = data_deposito.strftime("%d/%m/%Y")
                 if registrar_deposito(st.session_state.email, data_str, valor_deposito):
