@@ -158,7 +158,7 @@ def render():
                         key="editor_depositos"
                     )
                     
-                    if st.button("💾 Salvar Alterações (Depósitos)", use_container_width=True):
+                    if st.button("💾 Salvar Alterações (Depósitos)", use_container_width=True, type="primary"):
                         with st.spinner("Atualizando depósitos..."):
                             if atualizar_historico_usuario(st.session_state.email, "Depositos", df_depositos_editado):
                                 st.success("Depósitos atualizados com sucesso!")
