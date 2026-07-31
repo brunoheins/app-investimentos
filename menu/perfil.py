@@ -20,7 +20,7 @@ def render():
         nova_senha = c3.text_input("Nova Senha", type="password")
         confirma_senha = c4.text_input("Confirme a Nova Senha", type="password")
         
-        submit = st.form_submit_button("💾 Salvar Alterações", use_container_width=True, type="priority")
+        submit = st.form_submit_button("💾 Salvar Alterações", use_container_width=True, type="primary")
         
         if submit:
             if nova_senha or confirma_senha:
