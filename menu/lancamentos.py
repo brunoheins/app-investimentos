@@ -50,7 +50,7 @@ def render():
         with st.form("form_deposito", clear_on_submit=True):
             col1, col2 = st.columns(2)
             data_deposito = col1.date_input("Data do Depósito", value=datetime.today(), format="DD/MM/YYYY")
-            valor_deposito = col2.number_input("Valor (R$)", min_value=0.01, step=100.0, format="%.2f")
+            valor_deposito = col2.number_input("Valor (R$)", min_value=0.00, value=1000.00, step=100.0, format="%.2f")
             
             submit = st.form_submit_button("💾 Salvar Depósito", use_container_width=True)
             if submit:
@@ -72,7 +72,7 @@ def render():
         with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=painel_aberto):
             st.markdown("Descubra qual é o ativo mais atrasado na sua carteira neste momento:")
             c_val, c_num, c_btn = st.columns([2, 1, 1.2])
-            val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=10.0, value=1000.0, step=100.0)
+            val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=0.00, value=1000.00, step=100.00)
             num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3])
             
             if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
@@ -120,8 +120,8 @@ def render():
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
             data_compra = c1.date_input("Data da Compra", value=datetime.today(), format="DD/MM/YYYY")
-            qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
-            preco_compra = c3.number_input("Preço Médio Pago (R$)", min_value=0.01, step=1.0, format="%.2f")
+            qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0000, step=1.0, format="%.4f")
+            preco_compra = c3.number_input("Preço Médio Pago (R$)", min_value=0.00, step=1.0, format="%.2f")
             
             if st.button("🛒 Registrar Compra", use_container_width=True, type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
