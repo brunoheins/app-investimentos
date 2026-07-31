@@ -131,7 +131,7 @@ def render():
                 st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
+            if st.button("💾 Salvar Configuração Macro", use_container_width=True):
                 dados_para_salvar = {
                     'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
                     'RV_Brasil': st.session_state.rv_br_val, 'RV_Exterior': st.session_state.rv_ex_val,
