@@ -1,2 +1,3 @@
-toml[theme]
-primaryColor = "#FF0000"  # Vermelho
+[theme]
+base = "dark" # ou "light"
+primaryColor = "#FF0000" # Isso dita a cor dos botões priority e base do menu
