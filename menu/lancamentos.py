@@ -75,7 +75,7 @@ def render():
             val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=10.0, value=1000.0, step=100.0)
             num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3])
             
-            if c_btn.button("Gerar Dica Rápida", use_container_width=True):
+            if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
                 with st.spinner("Calculando defasagem..."):
                     compras, resto, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
                     # Salva o resultado na memória!
@@ -123,7 +123,7 @@ def render():
             qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
             preco_compra = c3.number_input("Preço Médio Pago (R$)", min_value=0.01, step=1.0, format="%.2f")
             
-            if st.button("🛒 Registrar Compra", use_container_width=True):
+            if st.button("🛒 Registrar Compra", use_container_width=True, type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
                 if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_compra, preco_compra):
                     st.success(f"Compra de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
