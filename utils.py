@@ -411,3 +411,58 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
         return False, "Usuário não encontrado."
     except Exception as e:
         return False, f"Erro ao atualizar perfil: {e}"
+
+def atualizar_historico_usuario(email, nome_aba, df_editado):
+    """
+    Substitui apenas os registros do usuário na aba especificada, 
+    mantendo os dados dos outros usuários intactos.
+    """
+    import pandas as pd
+    import streamlit as st
+    try:
+        # 1. Puxa os dados atuais da aba
+        df_full = ler_planilha(nome_aba)
+        
+        # 2. Separa os dados dos OUTROS usuários
+        if not df_full.empty and 'Email' in df_full.columns:
+            df_full['Email'] = df_full['Email'].astype(str).str.strip().str.lower()
+            df_outros = df_full[df_full['Email'] != email].copy()
+        else:
+            df_outros = pd.DataFrame()
+            
+        # 3. Recoloca o e-mail no dataframe editado pelo usuário (pois ele fica oculto na UI)
+        df_novo_usuario = df_editado.copy()
+        if not df_novo_usuario.empty:
+            df_novo_usuario['Email'] = email
+            
+        # 4. Une os dados (Outros + Usuário atualizado)
+        df_final = pd.concat([df_outros, df_novo_usuario], ignore_index=True)
+        
+        # 5. Mantém a ordem original das colunas
+        cabecalho_original = df_full.columns.tolist() if not df_full.empty else df_final.columns.tolist()
+        for col in cabecalho_original:
+            if col not in df_final.columns:
+                df_final[col] = ""
+        df_final = df_final[cabecalho_original]
+        
+        # 6. Conecta e sobrescreve a aba (Substitua "conectar_google_sheets" pela sua função de conexão se tiver nome diferente)
+        from oauth2client.service_account import ServiceAccountCredentials
+        import gspread
+        
+        # Como o utils.py já faz acessos à planilha, usamos o mesmo cliente
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+        client = gspread.authorize(creds)
+        
+        planilha = client.open("App_Investimentos")
+        aba = planilha.worksheet(nome_aba)
+        
+        # Limpa e atualiza
+        aba.clear()
+        dados_salvar = [df_final.columns.values.tolist()] + df_final.fillna("").values.tolist()
+        aba.update(dados_salvar)
+        
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar edição: {e}")
+        return False
