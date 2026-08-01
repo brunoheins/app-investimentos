@@ -17,8 +17,10 @@ def render():
             df_user_dep = df_dep[df_dep['Email'] == st.session_state.email].copy()
             
             if not df_user_dep.empty:
+                # SEGREDO 1: Se a data estiver inválida ou vazia, assume a data de hoje (não exclui a linha)
                 df_user_dep['Data'] = pd.to_datetime(df_user_dep['Data'], dayfirst=True, errors='coerce')
-                df_user_dep = df_user_dep.dropna(subset=['Data'])
+                df_user_dep['Data'] = df_user_dep['Data'].fillna(pd.Timestamp.today())
+                
                 df_user_dep['Valor'] = df_user_dep['Valor'].apply(extrair_numero_br)
                 df_user_dep['MesAno'] = df_user_dep['Data'].dt.strftime('%Y-%m')
                 df_dep_agrupado = df_user_dep.groupby('MesAno')['Valor'].sum().reset_index()
@@ -33,9 +35,13 @@ def render():
             df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
             df_user_inv = df_invest[df_invest['Email'] == st.session_state.email].copy()
             
-            if not df_user_inv.empty and 'DataCompra' in df_user_inv.columns:
-                df_user_inv['DataCompra'] = pd.to_datetime(df_user_inv['DataCompra'], dayfirst=True, errors='coerce')
-                df_user_inv = df_user_inv.dropna(subset=['DataCompra'])
+            if not df_user_inv.empty:
+                # SEGREDO 2: O mesmo para os ativos. Garante que nenhuma compra suma por erro de digitação de data
+                if 'DataCompra' in df_user_inv.columns:
+                    df_user_inv['DataCompra'] = pd.to_datetime(df_user_inv['DataCompra'], dayfirst=True, errors='coerce')
+                    df_user_inv['DataCompra'] = df_user_inv['DataCompra'].fillna(pd.Timestamp.today())
+                else:
+                    df_user_inv['DataCompra'] = pd.Timestamp.today()
                 
                 df_user_inv['Ativo'] = df_user_inv['Ativo'].astype(str).str.strip().str.upper()
                 df_user_inv['Quantidade'] = df_user_inv['Quantidade'].apply(extrair_numero_br)
@@ -76,15 +82,17 @@ def render():
         meses_inv = df_inv_agrupado['MesAno'].unique().tolist() if not df_inv_agrupado.empty else []
         
         todos_meses = sorted(list(set(meses_dep + meses_inv)))
+        mes_atual = datetime.now().strftime('%Y-%m')
         
         if todos_meses:
             mes_inicial = todos_meses[0]
+            # SEGREDO 3: Garante que a linha do tempo alcance datas futuras que o usuário possa ter digitado
+            mes_final = max(mes_atual, todos_meses[-1]) 
         else:
-            mes_inicial = datetime.now().strftime('%Y-%m')
+            mes_inicial = mes_atual
+            mes_final = mes_atual
             
-        mes_atual = datetime.now().strftime('%Y-%m')
-        
-        range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_atual}-01", freq='MS').strftime('%Y-%m').tolist()
+        range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_final}-01", freq='MS').strftime('%Y-%m').tolist()
         df_timeline = pd.DataFrame({'MesAno': range_meses})
         
         # --- 4. CALCULAR DEPÓSITOS ACUMULADOS ---
