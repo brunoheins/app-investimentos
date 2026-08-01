@@ -164,48 +164,73 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
 def obter_cotacoes():
     """
     Lê a aba 'Cotacao' e cria um dicionário de preços.
-    Agora as colunas têm nomes únicos, permitindo o uso rápido e seguro do Pandas.
+    Possui uma trava de segurança: pré-carrega o Preço de Custo (Preço Médio) do usuário.
+    Se encontrar a cotação online, atualiza. Se não encontrar, usa o custo para o dinheiro não sumir.
     """
     import pandas as pd
-    from utils import ler_planilha
+    import streamlit as st
+    from utils import ler_planilha, extrair_numero_br
 
     try:
-        df_cot = ler_planilha("Cotacao")
-        if df_cot.empty:
-            return {}
-        
         cotacoes = {}
-        num_colunas = len(df_cot.columns)
         
-        # Itera pelas colunas de 2 em 2 (ex: Ações -> Preco_Acoes)
-        for i in range(0, num_colunas, 2):
-            if i + 1 < num_colunas:
-                col_ativo = df_cot.columns[i]
-                col_preco = df_cot.columns[i+1]
+        # --- PASSO 1: PRÉ-CARREGAR O PREÇO DE CUSTO (TRAVA DE SEGURANÇA) ---
+        if 'email' in st.session_state:
+            email_usuario = st.session_state.email.strip().lower()
+            df_invest = ler_planilha("Investimentos")
+            
+            if not df_invest.empty and 'Email' in df_invest.columns:
+                df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
+                meus_invest = df_invest[df_invest['Email'] == email_usuario]
                 
-                for idx, row in df_cot.iterrows():
-                    ativo = str(row[col_ativo]).strip().upper()
-                    val = row[col_preco]
+                for _, row in meus_invest.iterrows():
+                    ativo = str(row.get('Ativo', '')).strip().upper()
                     
-                    # Ignorar linhas vazias ou erros de fórmula do Sheets (#N/A)
-                    if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
-                        val_str = str(val).strip().upper()
-                        if val_str not in ["NAN", "NONE", "", "#N/A", "#REF!", "#VALUE!"]:
-                            try:
-                                # Se já for número, apenas converte
-                                if isinstance(val, (int, float)):
-                                    preco = float(val)
-                                else:
-                                    # Limpa padrão brasileiro e símbolo de moeda, se houver
-                                    if "R$" in val_str:
-                                        val_str = val_str.replace("R$", "").strip()
-                                    if "," in val_str:
-                                        val_str = val_str.replace(".", "").replace(",", ".")
-                                    preco = float(val_str)
-                                
-                                cotacoes[ativo] = preco
-                            except ValueError:
-                                pass # Ignora a célula se não conseguir converter para número
+                    # Tenta pegar o PrecoMedio ou Preco que foi digitado no lançamento
+                    preco_custo = 0.0
+                    if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
+                        preco_custo = extrair_numero_br(row['PrecoMedio'])
+                    elif 'Preco' in row and pd.notnull(row['Preco']):
+                        preco_custo = extrair_numero_br(row['Preco'])
+                        
+                    if ativo and preco_custo > 0:
+                        # Salva o preço de custo no dicionário provisoriamente
+                        cotacoes[ativo] = preco_custo
+
+        # --- PASSO 2: LER A COTAÇÃO ONLINE E SOBRESCREVER (SE EXISTIR) ---
+        df_cot = ler_planilha("Cotacao")
+        if not df_cot.empty:
+            num_colunas = len(df_cot.columns)
+            
+            # Itera pelas colunas de 2 em 2
+            for i in range(0, num_colunas, 2):
+                if i + 1 < num_colunas:
+                    col_ativo = df_cot.columns[i]
+                    col_preco = df_cot.columns[i+1]
+                    
+                    for idx, row in df_cot.iterrows():
+                        ativo = str(row[col_ativo]).strip().upper()
+                        val = row[col_preco]
+                        
+                        # Ignorar linhas vazias ou erros de fórmula do Sheets (#N/A)
+                        if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
+                            val_str = str(val).strip().upper()
+                            if val_str not in ["NAN", "NONE", "", "#N/A", "#REF!", "#VALUE!"]:
+                                try:
+                                    if isinstance(val, (int, float)):
+                                        preco = float(val)
+                                    else:
+                                        # Limpa padrão brasileiro e símbolo de moeda
+                                        if "R$" in val_str:
+                                            val_str = val_str.replace("R$", "").strip()
+                                        if "," in val_str:
+                                            val_str = val_str.replace(".", "").replace(",", ".")
+                                        preco = float(val_str)
+                                    
+                                    # MÁGICA: Sobrescreve o preço de custo pelo preço de mercado real
+                                    cotacoes[ativo] = preco
+                                except ValueError:
+                                    pass 
         return cotacoes
     except Exception as e:
         print(f"Erro ao ler aba de cotações: {e}")
