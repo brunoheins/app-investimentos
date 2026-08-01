@@ -56,10 +56,8 @@ def render():
                 meus_depositos = df_depositos[df_depositos['Email'] == st.session_state.email].copy()
                 
                 if not meus_depositos.empty:
-                    # Limpa e soma a coluna Valor dos depósitos
-                    meus_depositos['Valor'] = meus_depositos['Valor'].apply(
-                        lambda x: float(str(x).replace('R$', '').replace('.', '').replace(',', '.')) if pd.notnull(x) and str(x).strip() != '' else 0.0
-                    )
+                    # Usa a função nativa do sistema para evitar erros de casa decimal
+                    meus_depositos['Valor'] = meus_depositos['Valor'].apply(extrair_numero_br)
                     total_carteira_investido = meus_depositos['Valor'].sum()
             # -------------------------------------------------------------------
             
