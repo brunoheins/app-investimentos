@@ -211,7 +211,8 @@ def render():
             st.session_state.cat_config = nova_cat
 
         st.markdown("<br>", unsafe_allow_html=True)
-        categorias = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
+        #categorias = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
+        categorias = ["Ações", "FIIs", "Stocks", "REITs", "ETFs"]
         cols_cat = st.columns(len(categorias))
         
         for i, cat in enumerate(categorias):
