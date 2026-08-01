@@ -47,8 +47,25 @@ def render():
             carteira_agrupada['EvolucaoPct'] = ((carteira_agrupada['PrecoAtual'] - carteira_agrupada['PrecoMedio']) / carteira_agrupada['PrecoMedio'].replace(0, 1)) * 100
             carteira_agrupada.loc[carteira_agrupada['PrecoMedio'] == 0, 'EvolucaoPct'] = 0
             
-            total_carteira_investido = carteira_agrupada['TotalInvestido'].sum()
+            # --- CORREÇÃO: PUXA O TOTAL INVESTIDO REAL (DINHEIRO DEPOSITADO) ---
+            df_depositos = ler_planilha("Depositos")
+            total_carteira_investido = 0.0
+            
+            if not df_depositos.empty and 'Email' in df_depositos.columns:
+                df_depositos['Email'] = df_depositos['Email'].astype(str).str.strip().str.lower()
+                meus_depositos = df_depositos[df_depositos['Email'] == st.session_state.email].copy()
+                
+                if not meus_depositos.empty:
+                    # Limpa e soma a coluna Valor dos depósitos
+                    meus_depositos['Valor'] = meus_depositos['Valor'].apply(
+                        lambda x: float(str(x).replace('R$', '').replace('.', '').replace(',', '.')) if pd.notnull(x) and str(x).strip() != '' else 0.0
+                    )
+                    total_carteira_investido = meus_depositos['Valor'].sum()
+            # -------------------------------------------------------------------
+            
             total_carteira_atual = carteira_agrupada['TotalAtual'].sum()
+            
+            # A Evolução agora compara o Patrimônio Atual contra o Dinheiro que saiu do seu bolso
             evolucao_total_carteira = ((total_carteira_atual - total_carteira_investido) / total_carteira_investido if total_carteira_investido > 0 else 0) * 100
             
             col_c1, col_c2, col_c3 = st.columns(3)
