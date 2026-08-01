@@ -163,49 +163,54 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
 
 def obter_cotacoes():
     """
-    Lê a aba 'Cotacao' e cria um dicionário de preços.
-    A aba possui colunas em pares: [Nome, PrecoAtual, Nome, PrecoAtual...]
+    Lê a aba 'Cotacao' diretamente em formato de lista bruta (sem Pandas) 
+    para evitar o erro de colunas com nomes duplicados ('PrecoAtual').
     """
-    import pandas as pd
-    from utils import ler_planilha
+    import streamlit as st
+    from oauth2client.service_account import ServiceAccountCredentials
+    import gspread
 
     try:
-        df_cot = ler_planilha("Cotacao")
-        if df_cot.empty:
+        # 1. Faz a conexão direta com o Google Sheets
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+        client = gspread.authorize(creds)
+        
+        planilha = client.open("App_Investimentos")
+        aba = planilha.worksheet("Cotacao")
+        
+        # 2. Puxa os dados como uma "lista de listas" (Bypassa o erro do Pandas)
+        dados_brutos = aba.get_all_values()
+        
+        if not dados_brutos or len(dados_brutos) < 2:
             return {}
         
         cotacoes = {}
-        num_colunas = len(df_cot.columns)
         
-        # Itera pelas colunas de 2 em 2 usando a POSIÇÃO (ignora os nomes repetidos)
-        for i in range(0, num_colunas, 2):
-            if i + 1 < num_colunas:
-                # Itera linha por linha usando o índice numérico
-                for idx in range(len(df_cot)):
-                    # .iat[linha, coluna] busca exatamente a coordenada X e Y
-                    ativo = str(df_cot.iat[idx, i]).strip().upper()
-                    val = df_cot.iat[idx, i+1]
+        # 3. dados_brutos[0] é o cabeçalho. Vamos varrer a partir da linha 1
+        for linha in dados_brutos[1:]:
+            # Itera pulando de 2 em 2 colunas
+            for i in range(0, len(linha), 2):
+                if i + 1 < len(linha):
+                    ativo = str(linha[i]).strip().upper()
+                    val_str = str(linha[i+1]).strip().upper()
                     
-                    # Ignorar linhas vazias ou erros de fórmula do Sheets
+                    # Ignora células vazias e erros de fórmula do Google Sheets
                     if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
-                        val_str = str(val).strip().upper()
                         if val_str not in ["NAN", "NONE", "", "#N/A", "#REF!", "#VALUE!"]:
                             try:
-                                # Se já for número, apenas converte
-                                if isinstance(val, (int, float)):
-                                    preco = float(val)
-                                else:
-                                    # Se for string (ex: "4.715,17"), limpa o padrão BR
-                                    if "," in val_str:
-                                        val_str = val_str.replace(".", "").replace(",", ".")
-                                    preco = float(val_str)
+                                # Trata o padrão brasileiro (tira R$, pontos e ajusta a vírgula)
+                                if "R$" in val_str:
+                                    val_str = val_str.replace("R$", "").strip()
+                                if "," in val_str:
+                                    val_str = val_str.replace(".", "").replace(",", ".")
                                 
-                                cotacoes[ativo] = preco
+                                cotacoes[ativo] = float(val_str)
                             except ValueError:
-                                pass # Ignora a célula se não conseguir converter
+                                pass # Ignora a célula se não conseguir converter o número
         return cotacoes
     except Exception as e:
-        print(f"Erro ao ler aba de cotações: {e}")
+        print(f"Erro ao ler cotações brutas: {e}")
         return {}
 
 def obter_ativos_por_categoria():
