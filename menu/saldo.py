@@ -27,7 +27,7 @@ def render():
         else:
             df_dep_agrupado = pd.DataFrame(columns=['MesAno', 'Valor'])
 
-        # --- 2. LER E TRATAR COMPRAS (ESTOQUE DE ATIVOS) ---
+        # --- 2. LER E TRATAR COMPRAS (ESTOQUE DE ATIVOS) COM FALLBACK ---
         df_invest = ler_planilha("Investimentos")
         if not df_invest.empty and 'Email' in df_invest.columns:
             df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
@@ -40,18 +40,32 @@ def render():
                 df_user_inv['Ativo'] = df_user_inv['Ativo'].astype(str).str.strip().str.upper()
                 df_user_inv['Quantidade'] = df_user_inv['Quantidade'].apply(extrair_numero_br)
                 
+                # Trata a coluna PrecoMedio para ser usada como Trava de Segurança
+                if 'PrecoMedio' in df_user_inv.columns:
+                    df_user_inv['PrecoCusto'] = df_user_inv['PrecoMedio'].apply(extrair_numero_br)
+                elif 'Preco' in df_user_inv.columns:
+                    df_user_inv['PrecoCusto'] = df_user_inv['Preco'].apply(extrair_numero_br)
+                else:
+                    df_user_inv['PrecoCusto'] = 0.0
+                
                 cotacoes_dict = obter_cotacoes()
                 df_user_inv['PrecoLive'] = df_user_inv['Ativo'].map(cotacoes_dict).fillna(0.0)
+                
+                # Marca quem tem cotação online e calcula o custo pago para os que não têm
+                df_user_inv['TemCotacao'] = df_user_inv['PrecoLive'] > 0
+                df_user_inv['TotalCusto'] = df_user_inv['Quantidade'] * df_user_inv['PrecoCusto']
                 
                 df_user_inv['MesAno'] = df_user_inv['DataCompra'].dt.strftime('%Y-%m')
                 df_inv_agrupado = df_user_inv.groupby(['MesAno', 'Ativo']).agg({
                     'Quantidade': 'sum',
-                    'PrecoLive': 'first'
+                    'TotalCusto': 'sum',
+                    'PrecoLive': 'first',
+                    'TemCotacao': 'first'
                 }).reset_index()
             else:
-                df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'PrecoLive'])
+                df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'TotalCusto', 'PrecoLive', 'TemCotacao'])
         else:
-            df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'PrecoLive'])
+            df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'TotalCusto', 'PrecoLive', 'TemCotacao'])
 
         if df_dep_agrupado.empty and df_inv_agrupado.empty:
             st.info("Registre depósitos e compras na aba '📝 Lançamentos' para ver a evolução do seu patrimônio.")
@@ -78,7 +92,7 @@ def render():
         df_timeline['Valor'] = df_timeline['Valor'].fillna(0)
         df_timeline['TotalAportado'] = df_timeline['Valor'].cumsum()
 
-        # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO ---
+        # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO (IDÊNTICO AO RESUMO.PY) ---
         linha_mercado = []
         estoque_ativos = {} 
         
@@ -87,12 +101,27 @@ def render():
             for _, row in compras_mes.iterrows():
                 ativo = row['Ativo']
                 if ativo not in estoque_ativos:
-                    estoque_ativos[ativo] = {'qtd': 0.0, 'preco_live': row['PrecoLive']}
+                    estoque_ativos[ativo] = {
+                        'qtd': 0.0, 
+                        'custo_acumulado': 0.0, 
+                        'preco_live': row['PrecoLive'], 
+                        'tem_cotacao': row['TemCotacao']
+                    }
                 
                 estoque_ativos[ativo]['qtd'] += row['Quantidade']
+                estoque_ativos[ativo]['custo_acumulado'] += row['TotalCusto']
                 estoque_ativos[ativo]['preco_live'] = row['PrecoLive']
+                estoque_ativos[ativo]['tem_cotacao'] = row['TemCotacao']
             
-            valor_mercado_mes = sum(d['qtd'] * d['preco_live'] for d in estoque_ativos.values())
+            valor_mercado_mes = 0.0
+            for d in estoque_ativos.values():
+                if d['tem_cotacao']:
+                    # Ativos de Bolsa: Quantidade Acumulada * Preço Ao Vivo
+                    valor_mercado_mes += d['qtd'] * d['preco_live']
+                else:
+                    # Ativos de Renda Fixa: Soma do Dinheiro Pago (Fallback)
+                    valor_mercado_mes += d['custo_acumulado']
+                    
             linha_mercado.append(valor_mercado_mes)
             
         df_timeline['ValorMercado'] = linha_mercado
