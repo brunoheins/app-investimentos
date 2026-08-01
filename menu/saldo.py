@@ -10,6 +10,8 @@ def render():
 
     with st.spinner("Construindo linha do tempo da sua carteira..."):
         
+        hoje = pd.Timestamp.today()
+        
         # --- 1. LER E TRATAR DEPÓSITOS ---
         df_dep = ler_planilha("Depositos")
         if not df_dep.empty and 'Email' in df_dep.columns:
@@ -17,9 +19,11 @@ def render():
             df_user_dep = df_dep[df_dep['Email'] == st.session_state.email].copy()
             
             if not df_user_dep.empty:
-                # SEGREDO 1: Se a data estiver inválida ou vazia, assume a data de hoje (não exclui a linha)
                 df_user_dep['Data'] = pd.to_datetime(df_user_dep['Data'], dayfirst=True, errors='coerce')
-                df_user_dep['Data'] = df_user_dep['Data'].fillna(pd.Timestamp.today())
+                df_user_dep['Data'] = df_user_dep['Data'].fillna(hoje)
+                
+                # TRAVA DE TEMPO: Traz qualquer depósito com data no futuro para Hoje
+                df_user_dep.loc[df_user_dep['Data'] > hoje, 'Data'] = hoje
                 
                 df_user_dep['Valor'] = df_user_dep['Valor'].apply(extrair_numero_br)
                 df_user_dep['MesAno'] = df_user_dep['Data'].dt.strftime('%Y-%m')
@@ -36,17 +40,18 @@ def render():
             df_user_inv = df_invest[df_invest['Email'] == st.session_state.email].copy()
             
             if not df_user_inv.empty:
-                # SEGREDO 2: O mesmo para os ativos. Garante que nenhuma compra suma por erro de digitação de data
                 if 'DataCompra' in df_user_inv.columns:
                     df_user_inv['DataCompra'] = pd.to_datetime(df_user_inv['DataCompra'], dayfirst=True, errors='coerce')
-                    df_user_inv['DataCompra'] = df_user_inv['DataCompra'].fillna(pd.Timestamp.today())
+                    df_user_inv['DataCompra'] = df_user_inv['DataCompra'].fillna(hoje)
                 else:
-                    df_user_inv['DataCompra'] = pd.Timestamp.today()
+                    df_user_inv['DataCompra'] = hoje
+                
+                # TRAVA DE TEMPO: Traz qualquer compra com data no futuro para Hoje
+                df_user_inv.loc[df_user_inv['DataCompra'] > hoje, 'DataCompra'] = hoje
                 
                 df_user_inv['Ativo'] = df_user_inv['Ativo'].astype(str).str.strip().str.upper()
                 df_user_inv['Quantidade'] = df_user_inv['Quantidade'].apply(extrair_numero_br)
                 
-                # Trata a coluna PrecoMedio para ser usada como Trava de Segurança
                 if 'PrecoMedio' in df_user_inv.columns:
                     df_user_inv['PrecoCusto'] = df_user_inv['PrecoMedio'].apply(extrair_numero_br)
                 elif 'Preco' in df_user_inv.columns:
@@ -57,7 +62,6 @@ def render():
                 cotacoes_dict = obter_cotacoes()
                 df_user_inv['PrecoLive'] = df_user_inv['Ativo'].map(cotacoes_dict).fillna(0.0)
                 
-                # Marca quem tem cotação online e calcula o custo pago para os que não têm
                 df_user_inv['TemCotacao'] = df_user_inv['PrecoLive'] > 0
                 df_user_inv['TotalCusto'] = df_user_inv['Quantidade'] * df_user_inv['PrecoCusto']
                 
@@ -82,15 +86,16 @@ def render():
         meses_inv = df_inv_agrupado['MesAno'].unique().tolist() if not df_inv_agrupado.empty else []
         
         todos_meses = sorted(list(set(meses_dep + meses_inv)))
-        mes_atual = datetime.now().strftime('%Y-%m')
+        mes_atual = hoje.strftime('%Y-%m')
         
         if todos_meses:
-            mes_inicial = todos_meses[0]
-            # SEGREDO 3: Garante que a linha do tempo alcance datas futuras que o usuário possa ter digitado
-            mes_final = max(mes_atual, todos_meses[-1]) 
+            # Garante que o mês inicial nunca seja maior que o mês atual
+            mes_inicial = min(todos_meses[0], mes_atual)
         else:
             mes_inicial = mes_atual
-            mes_final = mes_atual
+            
+        # OBRIGA O GRÁFICO A MORRER NO MÊS ATUAL
+        mes_final = mes_atual
             
         range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_final}-01", freq='MS').strftime('%Y-%m').tolist()
         df_timeline = pd.DataFrame({'MesAno': range_meses})
@@ -100,7 +105,7 @@ def render():
         df_timeline['Valor'] = df_timeline['Valor'].fillna(0)
         df_timeline['TotalAportado'] = df_timeline['Valor'].cumsum()
 
-        # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO (IDÊNTICO AO RESUMO.PY) ---
+        # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO ---
         linha_mercado = []
         estoque_ativos = {} 
         
@@ -124,10 +129,8 @@ def render():
             valor_mercado_mes = 0.0
             for d in estoque_ativos.values():
                 if d['tem_cotacao']:
-                    # Ativos de Bolsa: Quantidade Acumulada * Preço Ao Vivo
                     valor_mercado_mes += d['qtd'] * d['preco_live']
                 else:
-                    # Ativos de Renda Fixa: Soma do Dinheiro Pago (Fallback)
                     valor_mercado_mes += d['custo_acumulado']
                     
             linha_mercado.append(valor_mercado_mes)
