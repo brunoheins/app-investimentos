@@ -110,12 +110,23 @@ def render():
             c1, c2 = st.columns(2)
             c1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, step=1.0, key="rf_val", on_change=ajusta_macro, args=('rf',))
             c2.number_input("Renda Variável (RV) %", min_value=0.0, max_value=100.0, step=1.0, key="rv_val", on_change=ajusta_macro, args=('rv',))
+
+            st.caption("""
+            **Ponto de partida:** 50% em cada | **Critério:** quanto consegue ter de volatilidade sem se incomodar  
+            **Orientação:** mínimo 20% em renda fixa | **Usufruto:** 50% RF e 50% RV
+            """)
             
             st.markdown("---")
             st.subheader("Nível 2: Renda Variável")
             c3, c4 = st.columns(2)
             c3.number_input("Brasil %", min_value=0.0, max_value=100.0, step=1.0, key="rv_br_val", on_change=ajusta_rv, args=('br',))
             c4.number_input("Exterior %", min_value=0.0, max_value=100.0, step=1.0, key="rv_ex_val", on_change=ajusta_rv, args=('ex',))
+
+            st.caption("""
+            **Ponto de partida:** 70% Brasil e 30% EUA | **Critério:** distância da etapa de usufruto  
+            **Orientação:** mínimo 20% e máximo 50% nos EUA (Preferência ETF domiciliado na Irlanda de Acumulação)  
+            **Usufruto:** 80% Brasil e 20% Global
+            """)
             
             st.markdown("---")
             c_b1, c_b2 = st.columns(2)
@@ -130,6 +141,12 @@ def render():
                 st.number_input("REITs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_re_val", on_change=ajusta_ex, args=('re',))
                 st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
 
+            st.caption("""
+            **Ponto de partida:** 50% em cada | **Critério:** distância da etapa de usufruto  
+            **Orientação:** no mínimo 15% e máximo 35% tanto em ações/stocks quanto FIIs/REITs. Pelo menos 50% em ETFs Irlandês.  
+            **Usufruto:** 30% Ações, 70% FIIs, 70% REITs, 30% Stocks
+            """)
+            
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
                 dados_para_salvar = {
