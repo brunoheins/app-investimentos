@@ -26,9 +26,6 @@ if 'logado' not in st.session_state:
     st.session_state.codigo_recuperacao = None
     st.session_state.email_recuperacao = None
 
-def fazer_logout():
-    st.session_state.clear()
-    st.rerun()
 
 # ==========================================
 # FUNÇÃO DA TELA DE ACESSO (LOGIN/CADASTRO)
@@ -170,6 +167,8 @@ else:
     # 2. Executa a construção do menu lateral primeiro
     pg.run()
 
-    # 3. Adiciona o botão de logout logo abaixo do menu nativo
-    #st.sidebar.markdown("---")
-    st.sidebar.button("🚪 Sair do App", on_click=fazer_logout, use_container_width=True)
+    # 3. Adiciona o botão de logout logo abaixo do menu nativo com a correção (if em vez de callback)
+    st.sidebar.markdown("<br><br>", unsafe_allow_html=True) # Espaçamento para o botão não ficar colado
+    if st.sidebar.button("🚪 Sair do App", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
