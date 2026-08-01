@@ -177,15 +177,14 @@ def obter_cotacoes():
         cotacoes = {}
         num_colunas = len(df_cot.columns)
         
-        # Iterar pelas colunas de 2 em 2 (Ativo, Preco)
+        # Itera pelas colunas de 2 em 2 usando a POSIÇÃO (ignora os nomes repetidos)
         for i in range(0, num_colunas, 2):
             if i + 1 < num_colunas:
-                col_ativo = df_cot.columns[i]
-                col_preco = df_cot.columns[i+1]
-                
-                for idx, row in df_cot.iterrows():
-                    ativo = str(row[col_ativo]).strip().upper()
-                    val = row[col_preco]
+                # Itera linha por linha usando o índice numérico
+                for idx in range(len(df_cot)):
+                    # .iat[linha, coluna] busca exatamente a coordenada X e Y
+                    ativo = str(df_cot.iat[idx, i]).strip().upper()
+                    val = df_cot.iat[idx, i+1]
                     
                     # Ignorar linhas vazias ou erros de fórmula do Sheets
                     if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
@@ -203,7 +202,7 @@ def obter_cotacoes():
                                 
                                 cotacoes[ativo] = preco
                             except ValueError:
-                                pass # Ignora a célula se não conseguir converter para número
+                                pass # Ignora a célula se não conseguir converter
         return cotacoes
     except Exception as e:
         print(f"Erro ao ler aba de cotações: {e}")
