@@ -19,10 +19,16 @@ def render():
             dados_usuario['Quantidade'] = dados_usuario['Quantidade'].apply(extrair_numero_br)
             dados_usuario['PrecoMedio'] = dados_usuario['PrecoMedio'].apply(extrair_numero_br)
             
-            # --- CORREÇÃO: CRIA O PREÇO ATUAL DIRETO DA ABA COTAÇÃO ---
+            # --- CORREÇÃO: CRIA O PREÇO ATUAL DIRETO DA ABA COTAÇÃO COM FALLBACK DE SEGURANÇA ---
             cotacoes_dict = obter_cotacoes()
-            # Mapeia o nome do ativo para o preço. Se não encontrar, preenche com zero.
-            dados_usuario['PrecoAtual'] = dados_usuario['Ativo'].map(cotacoes_dict).fillna(0.0)
+            
+            # Mapeia o nome do ativo para o preço ao vivo. Se não encontrar, preenche com zero.
+            dados_usuario['PrecoLive'] = dados_usuario['Ativo'].map(cotacoes_dict).fillna(0.0)
+            
+            # REGRA MESTRA: Se achou o preço online, usa. Se não achou (ex: CDB), usa o Preço Médio (Custo).
+            dados_usuario['PrecoAtual'] = dados_usuario.apply(
+                lambda row: row['PrecoLive'] if row['PrecoLive'] > 0 else row['PrecoMedio'], axis=1
+            )
             # ------------------------------------------------------------
             
             dados_usuario['TotalInvestido'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
