@@ -21,8 +21,10 @@ def motor_de_aportes(email, valor_aporte, num_compras):
 
     if df_conf.empty or email not in df_conf['Email'].astype(str).str.strip().str.lower().values:
         return [], valor_aporte, "Metas de Alocação Macro não definidas na Configuração."
-    if df_ativos_conf.empty or email not in df_ativos_conf['Email'].astype(str).str.strip().str.lower().values:
-        return [], valor_aporte, "Ativos e Pesos não cadastrados na Configuração."
+    
+    # OBS: Removemos a trava de ativos configurados para não bloquear quem só tem Renda Fixa
+    if df_ativos_conf.empty:
+        df_ativos_conf = pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
 
     df_conf['Email'] = df_conf['Email'].astype(str).str.strip().str.lower()
     user_conf = df_conf[df_conf['Email'] == email].iloc[0].to_dict()
@@ -50,11 +52,17 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     ativos_alvos = []
     for _, row in df_user_ativos.iterrows():
         cat = normalizar_categoria(row['Categoria'])
+        if cat == "Renda Fixa": continue # Ignora RF aqui, pois é um bloco livre
         ativo = str(row['Ativo']).strip().upper()
         val_peso = row.get('Peso') if pd.notna(row.get('Peso')) else row.get('Peso (%)', 0)
         peso_global = cat_targets.get(cat, 0) * (float(val_peso) / 100.0)
         if ativo and ativo != "NAN":
             ativos_alvos.append({'Categoria': cat, 'Ativo': ativo, 'PesoGlobal': peso_global})
+
+    # NOVA REGRA: Injeta a Renda Fixa como um bloco genérico usando o peso Macro
+    peso_rf = cat_targets.get("Renda Fixa", 0)
+    if peso_rf > 0:
+        ativos_alvos.append({'Categoria': 'Renda Fixa', 'Ativo': 'OPORTUNIDADE DE RENDA FIXA', 'PesoGlobal': peso_rf})
 
     df_alvos = pd.DataFrame(ativos_alvos)
     if not df_alvos.empty:
@@ -75,6 +83,16 @@ def motor_de_aportes(email, valor_aporte, num_compras):
             
             df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict).fillna(0.0)
             df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoLive']
+
+            # Se for RF, como o preço não tem cotação online, vamos garantir que considere o Valor investido como Total
+            # (No futuro, você pode implementar a leitura real do patrimônio de RF, mas isso mantém a base)
+            for idx_inv, row_inv in df_user_invest.iterrows():
+                if row_inv['Categoria'] == "Renda Fixa" and row_inv['TotalAtual'] == 0:
+                    try:
+                        preco_digitado = float(str(row_inv.get('Preco', '0')).replace('.', '').replace(',', '.'))
+                        df_user_invest.at[idx_inv, 'TotalAtual'] = row_inv['Quantidade'] * preco_digitado
+                    except:
+                        pass
 
             df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
                 'TotalAtual': 'sum'
@@ -205,10 +223,11 @@ def render():
                         c_r3.metric("Comprar", c['Qtd_Sugerida'])
                         c_r4.metric("Falta p/ Meta", c['Qtd_Faltante'])
                     else:
+                        # Renderização customizada e mais elegante para a Renda Fixa
                         c_r1, c_r2, c_r3 = st.columns(3)
                         c_r1.metric("Alocar (R$)", formata_br(c['Valor']))
-                        c_r2.metric("Preço Atual", formata_br(c['PrecoRef']) if c['PrecoRef'] > 0 else "N/A")
-                        c_r3.metric("Status", "Renda Fixa")
+                        c_r2.metric("Estratégia", "Escolha Livre")
+                        c_r3.metric("Sugestão", "Melhor Taxa IPCA+")
                     st.markdown("<hr style='margin: 0.5em 0; border: 0; border-top: 1px dashed #ddd;'>", unsafe_allow_html=True)
 
             if aporte_restante > 0.05:
