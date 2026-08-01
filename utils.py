@@ -162,38 +162,51 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         return False
 
 def obter_cotacoes():
-    """Lê a aba Cotacao de forma inteligente, caçando os cabeçalhos das categorias"""
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    """
+    Lê a aba 'Cotacao' e cria um dicionário de preços.
+    A aba possui colunas em pares: [Nome, PrecoAtual, Nome, PrecoAtual...]
+    """
+    import pandas as pd
+    from utils import ler_planilha
+
     try:
-        creds_dict = json.loads(st.secrets["gcp_service_account"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open("App_Investimentos").worksheet("Cotacao")
+        df_cot = ler_planilha("Cotacao")
+        if df_cot.empty:
+            return {}
         
-        valores = sheet.get_all_values()
         cotacoes = {}
-        if len(valores) > 1:
-            cabecalhos = valores[0]
-            indices_ativos = []
-            
-            # 1. Procura em quais colunas os nomes dos ativos estão escritos
-            for i, col in enumerate(cabecalhos):
-                c = str(col).strip().upper()
-                if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO", "FIIS", "FII", "IPCA", "RENDA FIXA", "STOCKS", "REITS", "ETFS"]:
-                    indices_ativos.append(i)
-            
-            # 2. Puxa o ativo da coluna encontrada, e o preço obrigatoriamente da coluna ao lado (i + 1)
-            for linha in valores[1:]:
-                for idx_ativo in indices_ativos:
-                    idx_preco = idx_ativo + 1
-                    if len(linha) > idx_preco:
-                        ativo = str(linha[idx_ativo]).strip().upper()
-                        preco = extrair_numero_br(linha[idx_preco])
-                        if ativo and preco > 0:
-                            cotacoes[ativo] = preco
-                            
+        num_colunas = len(df_cot.columns)
+        
+        # Iterar pelas colunas de 2 em 2 (Ativo, Preco)
+        for i in range(0, num_colunas, 2):
+            if i + 1 < num_colunas:
+                col_ativo = df_cot.columns[i]
+                col_preco = df_cot.columns[i+1]
+                
+                for idx, row in df_cot.iterrows():
+                    ativo = str(row[col_ativo]).strip().upper()
+                    val = row[col_preco]
+                    
+                    # Ignorar linhas vazias ou erros de fórmula do Sheets
+                    if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
+                        val_str = str(val).strip().upper()
+                        if val_str not in ["NAN", "NONE", "", "#N/A", "#REF!", "#VALUE!"]:
+                            try:
+                                # Se já for número, apenas converte
+                                if isinstance(val, (int, float)):
+                                    preco = float(val)
+                                else:
+                                    # Se for string (ex: "4.715,17"), limpa o padrão BR
+                                    if "," in val_str:
+                                        val_str = val_str.replace(".", "").replace(",", ".")
+                                    preco = float(val_str)
+                                
+                                cotacoes[ativo] = preco
+                            except ValueError:
+                                pass # Ignora a célula se não conseguir converter para número
         return cotacoes
     except Exception as e:
+        print(f"Erro ao ler aba de cotações: {e}")
         return {}
 
 def obter_ativos_por_categoria():
