@@ -22,9 +22,9 @@ def render():
             with st.spinner("Compilando seus dados em Excel..."):
                 abas_alvo = ["Configuracao", "Depositos", "Investimentos"]
                 
-                # Utiliza o BytesIO para gerar o arquivo Excel na memória RAM sem precisar salvar no disco
+                # Utiliza o BytesIO para gerar o arquivo Excel na memória RAM
                 output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     tem_dados = False
                     for aba in abas_alvo:
                         df = ler_planilha(aba)
