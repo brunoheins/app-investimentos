@@ -25,7 +25,6 @@ def render():
                 # Utiliza o BytesIO para gerar o arquivo Excel na memória RAM
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    tem_dados = False
                     for aba in abas_alvo:
                         df = ler_planilha(aba)
                         if not df.empty and 'Email' in df.columns:
@@ -33,17 +32,15 @@ def render():
                             meus_dados = df[df['Email'] == email_logado].copy()
                             
                             if not meus_dados.empty:
-                                # Remove a coluna de Email para privacidade
+                                # Remove a coluna de Email para privacidade e salva
                                 meus_dados = meus_dados.drop(columns=['Email'])
                                 meus_dados.to_excel(writer, sheet_name=aba, index=False)
-                                tem_dados = True
                             else:
-                                # Cria uma aba vazia com o cabeçalho original para manter a estrutura
-                                df_vazio = df.drop(columns=['Email']).iloc[0:0]
-                                df_vazio.to_excel(writer, sheet_name=aba, index=False)
+                                # CORREÇÃO PARA O GOOGLE DRIVE: Nunca deixar aba 100% vazia
+                                pd.DataFrame({"Aviso": ["Sem registros"]}).to_excel(writer, sheet_name=aba, index=False)
                         else:
-                            # Se a aba principal estiver totalmente vazia
-                            pd.DataFrame().to_excel(writer, sheet_name=aba, index=False)
+                            # CORREÇÃO PARA O GOOGLE DRIVE: Aba principal sem dados
+                            pd.DataFrame({"Aviso": ["Sem registros"]}).to_excel(writer, sheet_name=aba, index=False)
                 
                 processed_data = output.getvalue()
                 
@@ -67,10 +64,8 @@ def render():
         
         if arquivo_upload is not None:
             try:
-                # Lê todas as abas do arquivo Excel para um dicionário de DataFrames
                 xls = pd.ExcelFile(arquivo_upload)
-                
-                st.info(f"Arquivo lido com sucesso! Abas encontradas: {', *'.join(xls.sheet_names)}")
+                st.info(f"Arquivo lido com sucesso! Abas encontradas: {', '.join(xls.sheet_names)}")
                 
                 modo_importacao = st.radio(
                     "Modo de Restauração:",
@@ -91,24 +86,22 @@ def render():
                         for aba in abas_alvo:
                             if aba in xls.sheet_names:
                                 df_novo = pd.read_excel(xls, sheet_name=aba)
-                                
-                                # Remove linhas que venham totalmente vazias por acidente
                                 df_novo = df_novo.dropna(how='all')
                                 
-                                if not df_novo.empty:
-                                    # Injeta o e-mail exclusivo do usuário logado
+                                # Ignora as abas "falsas" que criamos só para enganar o Google Drive
+                                if not df_novo.empty and "Aviso" not in df_novo.columns:
+                                    # Injeta o e-mail do usuário atual
                                     df_novo['Email'] = email_logado
                                     
-                                    # A aba de Configuração sempre substitui os dados antigos por ser única por usuário
                                     if aba == "Configuracao" or modo_importacao.startswith("Substituir Tudo"):
                                         deletar_registros_usuario(aba, email_logado)
                                     
                                     inserir_lote_registros(aba, df_novo)
                                 elif modo_importacao.startswith("Substituir Tudo"):
+                                    # Se a aba estiver vazia no backup, limpa os dados do usuário também
                                     deletar_registros_usuario(aba, email_logado)
                                     
                     st.success("✅ Restauração via Excel concluída com sucesso! Atualize a página ou navegue pelo menu para visualizar suas informações.")
                     
             except Exception as e:
                 st.error(f"Erro ao ler ou processar a planilha. Verifique se o arquivo segue o formato correto. Detalhes: {e}")
-                
