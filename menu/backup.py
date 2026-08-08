@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
+import tempfile
+import os
 from utils import ler_planilha, deletar_registros_usuario, inserir_lote_registros
 
 def render():
@@ -12,7 +13,7 @@ def render():
     tab_export, tab_import = st.tabs(["📤 Exportar para Excel", "📥 Importar do Excel"])
     
     # ==========================================
-    # LÓGICA DE EXPORTAÇÃO (EXCEL)
+    # LÓGICA DE EXPORTAÇÃO (EXCEL FÍSICO)
     # ==========================================
     with tab_export:
         st.subheader("Gerar Planilha de Backup")
@@ -22,27 +23,35 @@ def render():
             with st.spinner("Compilando seus dados em Excel..."):
                 abas_alvo = ["Configuracao", "Depositos", "Investimentos"]
                 
-                # Utiliza o BytesIO para gerar o arquivo Excel na memória RAM
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    for aba in abas_alvo:
-                        df = ler_planilha(aba)
-                        if not df.empty and 'Email' in df.columns:
-                            df['Email'] = df['Email'].astype(str).str.strip().str.lower()
-                            meus_dados = df[df['Email'] == email_logado].copy()
-                            
-                            if not meus_dados.empty:
-                                # Remove a coluna de Email para privacidade e salva
-                                meus_dados = meus_dados.drop(columns=['Email'])
-                                meus_dados.to_excel(writer, sheet_name=aba, index=False)
+                # Cria um arquivo temporário real no disco do servidor
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                    caminho_temp = tmp.name
+                    
+                try:
+                    # Salva os dados nesse arquivo físico (Resolve o problema do Google Drive)
+                    with pd.ExcelWriter(caminho_temp, engine='openpyxl') as writer:
+                        for aba in abas_alvo:
+                            df = ler_planilha(aba)
+                            if not df.empty and 'Email' in df.columns:
+                                df['Email'] = df['Email'].astype(str).str.strip().str.lower()
+                                meus_dados = df[df['Email'] == email_logado].copy()
+                                
+                                if not meus_dados.empty:
+                                    meus_dados = meus_dados.drop(columns=['Email'])
+                                    meus_dados.to_excel(writer, sheet_name=aba, index=False)
+                                else:
+                                    pd.DataFrame({"Aviso": ["Aba sem dados"]}).to_excel(writer, sheet_name=aba, index=False)
                             else:
-                                # CORREÇÃO PARA O GOOGLE DRIVE: Nunca deixar aba 100% vazia
-                                pd.DataFrame({"Aviso": ["Sem registros"]}).to_excel(writer, sheet_name=aba, index=False)
-                        else:
-                            # CORREÇÃO PARA O GOOGLE DRIVE: Aba principal sem dados
-                            pd.DataFrame({"Aviso": ["Sem registros"]}).to_excel(writer, sheet_name=aba, index=False)
-                
-                processed_data = output.getvalue()
+                                pd.DataFrame({"Aviso": ["Aba sem dados"]}).to_excel(writer, sheet_name=aba, index=False)
+                                
+                    # Lê o arquivo recém-criado em modo binário
+                    with open(caminho_temp, "rb") as f:
+                        processed_data = f.read()
+                        
+                finally:
+                    # Limpa o arquivo do disco imediatamente após ler (segurança e performance)
+                    if os.path.exists(caminho_temp):
+                        os.remove(caminho_temp)
                 
                 st.success("Planilha de backup gerada com sucesso!")
                 st.download_button(
@@ -88,9 +97,8 @@ def render():
                                 df_novo = pd.read_excel(xls, sheet_name=aba)
                                 df_novo = df_novo.dropna(how='all')
                                 
-                                # Ignora as abas "falsas" que criamos só para enganar o Google Drive
+                                # Ignora as abas de aviso
                                 if not df_novo.empty and "Aviso" not in df_novo.columns:
-                                    # Injeta o e-mail do usuário atual
                                     df_novo['Email'] = email_logado
                                     
                                     if aba == "Configuracao" or modo_importacao.startswith("Substituir Tudo"):
@@ -98,7 +106,6 @@ def render():
                                     
                                     inserir_lote_registros(aba, df_novo)
                                 elif modo_importacao.startswith("Substituir Tudo"):
-                                    # Se a aba estiver vazia no backup, limpa os dados do usuário também
                                     deletar_registros_usuario(aba, email_logado)
                                     
                     st.success("✅ Restauração via Excel concluída com sucesso! Atualize a página ou navegue pelo menu para visualizar suas informações.")
