@@ -4,3 +4,4 @@ gspread
 google-auth
 pandas
 plotly
+openpyxl>=3.0.0
