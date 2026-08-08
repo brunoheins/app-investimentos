@@ -509,65 +509,73 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
 
 def deletar_registros_usuario(nome_aba, email):
     """
-    Deleta todas as linhas pertencentes ao email especificado em uma aba específica.
+    Deleta todas as linhas pertencentes ao email especificado em uma aba.
+    Retorna (True/False, Mensagem).
     """
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
     import gspread
 
     try:
+        # ⚠️ COLOQUE AQUI O NOME EXATO DA SUA PLANILHA NO GOOGLE DRIVE
+        NOME_PLANILHA = "App_Investimentos" 
+        
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
         client = gspread.authorize(creds)
         
-        aba = client.open("App_Investimentos").worksheet(nome_aba)
+        aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
         registros = aba.get_all_values()
         
         if not registros or len(registros) < 2:
-            return
+            return True, "Nada a deletar."
             
         cabecalho = [str(c).strip() for c in registros[0]]
         if "Email" not in cabecalho:
-            return
+            return False, f"Coluna 'Email' não encontrada na aba {nome_aba}."
             
         idx_email = cabecalho.index("Email")
         
-        # Identifica as linhas do usuário (ajustando o índice +1 do gspread e +1 do cabeçalho)
         linhas_para_deletar = []
         for i, linha in enumerate(registros[1:], start=2):
             if len(linha) > idx_email and linha[idx_email].strip().lower() == email.strip().lower():
                 linhas_para_deletar.append(i)
                 
-        # Deleta de baixo para cima para não quebrar a ordem dos índices
         for i in reversed(linhas_para_deletar):
             aba.delete_rows(i)
             
+        return True, "Sucesso"
     except Exception as e:
-        print(f"Erro ao deletar registros na aba {nome_aba}: {e}")
+        return False, f"Erro ao apagar dados do Google Sheets: {str(e)}"
 
 def inserir_lote_registros(nome_aba, df):
     """
-    Insere um DataFrame inteiro em uma aba do Google Sheets.
+    Insere um DataFrame inteiro em uma aba do Google Sheets de forma segura.
+    Retorna (True/False, Mensagem).
     """
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
     import gspread
 
     if df.empty:
-        return
+        return True, "Planilha vazia, nada a inserir."
 
     try:
+        # ⚠️ COLOQUE AQUI O NOME EXATO DA SUA PLANILHA NO GOOGLE DRIVE
+        NOME_PLANILHA = "App_Investimentos"
+        
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
         client = gspread.authorize(creds)
         
-        aba = client.open("App_Investimentos").worksheet(nome_aba)
+        aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
         
-        # Converte NaN para string vazia e transforma em lista de listas
-        dados = df.fillna("").values.tolist()
+        # MÁGICA DE SEGURANÇA: Converte tudo para texto e limpa nulos/datas quebradas
+        df_limpo = df.astype(str).replace(["nan", "NaT", "None", "<NA>"], "")
+        dados = df_limpo.values.tolist()
         
-        # Adiciona no final da planilha
         aba.append_rows(dados, value_input_option='USER_ENTERED')
         
+        return True, "Sucesso"
     except Exception as e:
-        print(f"Erro ao inserir lote na aba {nome_aba}: {e}")
+        return False, f"Erro ao salvar no Google Sheets: {str(e)}"
