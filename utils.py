@@ -510,7 +510,7 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
 def deletar_registros_usuario(nome_aba, email):
     """
     Deleta todas as linhas pertencentes ao email especificado em uma aba.
-    Retorna (True/False, Mensagem).
+    Usa o método de Lote (Batch) para evitar o Erro 429 (Limite da API do Google).
     """
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
@@ -522,7 +522,7 @@ def deletar_registros_usuario(nome_aba, email):
         
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # MÁGICA DA AUTENTICAÇÃO: Transforma a senha em dicionário caso o Streamlit leia como texto
+        # Autenticação Segura
         chave_gcp = st.secrets["gcp_service_account"]
         if isinstance(chave_gcp, str):
             chave_dict = json.loads(chave_gcp)
@@ -544,54 +544,24 @@ def deletar_registros_usuario(nome_aba, email):
             
         idx_email = cabecalho.index("Email")
         
-        linhas_para_deletar = []
-        for i, linha in enumerate(registros[1:], start=2):
+        # MÁGICA DO LOTE: Separa o joio do trigo no Python (não no Google)
+        linhas_mantidas = [registros[0]] # Começa guardando o cabeçalho
+        teve_exclusao = False
+        
+        for linha in registros[1:]:
+            # Se a linha pertencer ao usuário logado, nós ignoramos (excluímos virtualmente)
             if len(linha) > idx_email and linha[idx_email].strip().lower() == email.strip().lower():
-                linhas_para_deletar.append(i)
+                teve_exclusao = True
+            else:
+                # Se for de outro usuário (ou vazia), nós guardamos
+                linhas_mantidas.append(linha)
                 
-        for i in reversed(linhas_para_deletar):
-            aba.delete_rows(i)
+        # Se encontrou dados do usuário, atualiza a planilha toda de uma vez só!
+        if teve_exclusao:
+            aba.clear() # Limpa a aba inteira (1 requisição)
+            if len(linhas_mantidas) > 0:
+                aba.append_rows(linhas_mantidas, value_input_option='USER_ENTERED') # Grava o que sobrou (1 requisição)
             
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao apagar dados do Google Sheets: {str(e)}"
-
-def inserir_lote_registros(nome_aba, df):
-    """
-    Insere um DataFrame inteiro em uma aba do Google Sheets de forma segura.
-    Retorna (True/False, Mensagem).
-    """
-    import streamlit as st
-    from oauth2client.service_account import ServiceAccountCredentials
-    import gspread
-    import json
-
-    if df.empty:
-        return True, "Planilha vazia, nada a inserir."
-
-    try:
-        NOME_PLANILHA = "App_Investimentos"
-        
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        
-        # MÁGICA DA AUTENTICAÇÃO: Transforma a senha em dicionário caso o Streamlit leia como texto
-        chave_gcp = st.secrets["gcp_service_account"]
-        if isinstance(chave_gcp, str):
-            chave_dict = json.loads(chave_gcp)
-        else:
-            chave_dict = dict(chave_gcp)
-            
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(chave_dict, scope)
-        client = gspread.authorize(creds)
-        
-        aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
-        
-        # Converte tudo para texto e limpa nulos/datas quebradas
-        df_limpo = df.astype(str).replace(["nan", "NaT", "None", "<NA>"], "")
-        dados = df_limpo.values.tolist()
-        
-        aba.append_rows(dados, value_input_option='USER_ENTERED')
-        
-        return True, "Sucesso"
-    except Exception as e:
-        return False, f"Erro ao salvar no Google Sheets: {str(e)}"
