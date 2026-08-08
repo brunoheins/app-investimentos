@@ -100,7 +100,13 @@ def render():
                                 
                                 # Ignora as abas de aviso
                                 if not df_novo.empty and "Aviso" not in df_novo.columns:
+                                    # Injeta o e-mail do usuário atual
                                     df_novo['Email'] = email_logado
+                                    
+                                    # MÁGICA DO ALINHAMENTO: Lê o cabeçalho original e reordena as colunas
+                                    df_molde = ler_planilha(aba)
+                                    if not df_molde.empty:
+                                        df_novo = df_novo.reindex(columns=df_molde.columns)
                                     
                                     if aba == "Configuracao" or modo_importacao.startswith("Substituir Tudo"):
                                         sucesso_del, msg_del = deletar_registros_usuario(aba, email_logado)
