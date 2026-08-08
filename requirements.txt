@@ -1,8 +1,10 @@
 streamlit>=1.40.0
 starlette<0.40.0
-gspread
+gspread>=5.12.0
 google-auth
 pandas
 plotly
 openpyxl>=3.0.0
 xlsxwriter>=3.0.0
+oauth2client>=4.1.3
+
