@@ -515,13 +515,21 @@ def deletar_registros_usuario(nome_aba, email):
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
     import gspread
+    import json
 
     try:
-        # ⚠️ COLOQUE AQUI O NOME EXATO DA SUA PLANILHA NO GOOGLE DRIVE
         NOME_PLANILHA = "App_Investimentos" 
         
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+        
+        # MÁGICA DA AUTENTICAÇÃO: Transforma a senha em dicionário caso o Streamlit leia como texto
+        chave_gcp = st.secrets["gcp_service_account"]
+        if isinstance(chave_gcp, str):
+            chave_dict = json.loads(chave_gcp)
+        else:
+            chave_dict = dict(chave_gcp)
+            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(chave_dict, scope)
         client = gspread.authorize(creds)
         
         aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
@@ -556,21 +564,29 @@ def inserir_lote_registros(nome_aba, df):
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
     import gspread
+    import json
 
     if df.empty:
         return True, "Planilha vazia, nada a inserir."
 
     try:
-        # ⚠️ COLOQUE AQUI O NOME EXATO DA SUA PLANILHA NO GOOGLE DRIVE
         NOME_PLANILHA = "App_Investimentos"
         
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+        
+        # MÁGICA DA AUTENTICAÇÃO: Transforma a senha em dicionário caso o Streamlit leia como texto
+        chave_gcp = st.secrets["gcp_service_account"]
+        if isinstance(chave_gcp, str):
+            chave_dict = json.loads(chave_gcp)
+        else:
+            chave_dict = dict(chave_gcp)
+            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(chave_dict, scope)
         client = gspread.authorize(creds)
         
         aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
         
-        # MÁGICA DE SEGURANÇA: Converte tudo para texto e limpa nulos/datas quebradas
+        # Converte tudo para texto e limpa nulos/datas quebradas
         df_limpo = df.astype(str).replace(["nan", "NaT", "None", "<NA>"], "")
         dados = df_limpo.values.tolist()
         
