@@ -29,7 +29,7 @@ def render():
                     
                 try:
                     # Salva os dados nesse arquivo físico (Resolve o problema do Google Drive)
-                    with pd.ExcelWriter(caminho_temp, engine='openpyxl') as writer:
+                    with pd.ExcelWriter(caminho_temp, engine='xlsxwriter') as writer:
                         for aba in abas_alvo:
                             df = ler_planilha(aba)
                             if not df.empty and 'Email' in df.columns:
@@ -88,9 +88,10 @@ def render():
                 st.warning("⚠️ Atenção: Esta ação irá modificar seu banco de dados na nuvem e não poderá ser desfeita.")
                 
                 if st.button("🚀 Iniciar Restauração via Excel", type="primary", use_container_width=True):
-                    with st.spinner("Processando restauração dos dados..."):
+                    with st.spinner("Processando restauração dos dados... Isso pode demorar um pouco."):
                         
                         abas_alvo = ["Configuracao", "Depositos", "Investimentos"]
+                        teve_erro = False
                         
                         for aba in abas_alvo:
                             if aba in xls.sheet_names:
@@ -102,13 +103,26 @@ def render():
                                     df_novo['Email'] = email_logado
                                     
                                     if aba == "Configuracao" or modo_importacao.startswith("Substituir Tudo"):
-                                        deletar_registros_usuario(aba, email_logado)
+                                        sucesso_del, msg_del = deletar_registros_usuario(aba, email_logado)
+                                        if not sucesso_del:
+                                            st.error(f"Erro ao limpar aba {aba}: {msg_del}")
+                                            teve_erro = True
                                     
-                                    inserir_lote_registros(aba, df_novo)
+                                    sucesso_ins, msg_ins = inserir_lote_registros(aba, df_novo)
+                                    if not sucesso_ins:
+                                        st.error(f"Erro ao gravar aba {aba}: {msg_ins}")
+                                        teve_erro = True
+                                        
                                 elif modo_importacao.startswith("Substituir Tudo"):
-                                    deletar_registros_usuario(aba, email_logado)
-                                    
-                    st.success("✅ Restauração via Excel concluída com sucesso! Atualize a página ou navegue pelo menu para visualizar suas informações.")
-                    
+                                    sucesso_del, msg_del = deletar_registros_usuario(aba, email_logado)
+                                    if not sucesso_del:
+                                        st.error(f"Erro ao limpar aba {aba}: {msg_del}")
+                                        teve_erro = True
+                                        
+                        if not teve_erro:
+                            st.success("✅ Restauração via Excel concluída com sucesso! Atualize a página ou navegue pelo menu para visualizar suas informações.")
+                        else:
+                            st.warning("⚠️ A restauração terminou, mas ocorreram alguns erros listados acima.")
+                            
             except Exception as e:
                 st.error(f"Erro ao ler ou processar a planilha. Verifique se o arquivo segue o formato correto. Detalhes: {e}")
