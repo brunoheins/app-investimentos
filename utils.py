@@ -565,3 +565,44 @@ def deletar_registros_usuario(nome_aba, email):
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao apagar dados do Google Sheets: {str(e)}"
+
+
+def inserir_lote_registros(nome_aba, df):
+    """
+    Insere um DataFrame inteiro em uma aba do Google Sheets de forma segura.
+    Retorna (True/False, Mensagem).
+    """
+    import streamlit as st
+    from oauth2client.service_account import ServiceAccountCredentials
+    import gspread
+    import json
+
+    if df.empty:
+        return True, "Planilha vazia, nada a inserir."
+
+    try:
+        NOME_PLANILHA = "App_Investimentos"
+        
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        
+        # MÁGICA DA AUTENTICAÇÃO: Transforma a senha em dicionário caso o Streamlit leia como texto
+        chave_gcp = st.secrets["gcp_service_account"]
+        if isinstance(chave_gcp, str):
+            chave_dict = json.loads(chave_gcp)
+        else:
+            chave_dict = dict(chave_gcp)
+            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(chave_dict, scope)
+        client = gspread.authorize(creds)
+        
+        aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
+        
+        # Converte tudo para texto e limpa nulos/datas quebradas
+        df_limpo = df.astype(str).replace(["nan", "NaT", "None", "<NA>"], "")
+        dados = df_limpo.values.tolist()
+        
+        aba.append_rows(dados, value_input_option='USER_ENTERED')
+        
+        return True, "Sucesso"
+    except Exception as e:
+        return False, f"Erro ao salvar no Google Sheets: {str(e)}"
