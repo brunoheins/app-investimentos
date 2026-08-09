@@ -103,7 +103,7 @@ def render():
         st.markdown("<br>", unsafe_allow_html=True)
         # -------------------------------------------------------
 
-        cat_ativos_dict = obter_ativos_por_categoria()
+        cat_ativos_dict = obter_ativos_por_categoria(st.session_state.email)
         categorias_disp = list(cat_ativos_dict.keys())
 
         c_cat, c_atv = st.columns(2)
