@@ -167,66 +167,126 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         st.error(f"Erro ao salvar ativos: {e}")
         return False
 
+# ==========================================
+# COTAÇÕES EM TEMPO REAL (YFINANCE + TESOURO)
+# ==========================================
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_cotacoes():
+    """
+    Busca os preços em tempo real usando Python, ignorando as fórmulas do Google Sheets.
+    Usa 'requests' para Tesouro Direto e 'yfinance' para Ações/FIIs/Stocks.
+    """
+    import yfinance as yf
+    import requests
+    import streamlit as st
+    import pandas as pd
+    import re
+
+    cotacoes = {}
+    ativos_buscados = set()
+    
     try:
-        cotacoes = {}
-        
-        # --- PASSO 1: PRÉ-CARREGAR O PREÇO DE CUSTO (TRAVA DE SEGURANÇA) ---
+        # --- 1. DESCOBRIR QUAIS ATIVOS O USUÁRIO TEM ---
         if 'email' in st.session_state:
             email_usuario = st.session_state.email.strip().lower()
-            # Como ler_planilha tem cache, essa chamada será super rápida
-            df_invest = ler_planilha("Investimentos") 
             
+            # Lê os ativos já comprados
+            df_invest = ler_planilha("Investimentos")
             if not df_invest.empty and 'Email' in df_invest.columns:
-                df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
-                meus_invest = df_invest[df_invest['Email'] == email_usuario]
-                
+                meus_invest = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email_usuario]
                 for _, row in meus_invest.iterrows():
                     ativo = str(row.get('Ativo', '')).strip().upper()
-                    
-                    preco_custo = 0.0
-                    if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
-                        preco_custo = extrair_numero_br(row['PrecoMedio'])
-                    elif 'Preco' in row and pd.notnull(row['Preco']):
-                        preco_custo = extrair_numero_br(row['Preco'])
+                    if ativo and ativo not in ["NAN", "NONE", ""]:
+                        ativos_buscados.add(ativo)
                         
-                    if ativo and preco_custo > 0:
-                        cotacoes[ativo] = preco_custo
+                        # Trava de Segurança: Pré-carrega o custo médio para o dinheiro não sumir se a API falhar
+                        preco_custo = 0.0
+                        if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
+                            preco_custo = extrair_numero_br(row['PrecoMedio'])
+                        elif 'Preco' in row and pd.notnull(row['Preco']):
+                            preco_custo = extrair_numero_br(row['Preco'])
+                        if preco_custo > 0 and ativo not in cotacoes:
+                            cotacoes[ativo] = preco_custo
 
-        # --- PASSO 2: LER A COTAÇÃO ONLINE E SOBRESCREVER (SE EXISTIR) ---
-        df_cot = ler_planilha("Cotacao")
-        if not df_cot.empty:
-            num_colunas = len(df_cot.columns)
+            # Lê os ativos que o usuário cadastrou nas metas (mesmo se ainda não comprou)
+            df_config = ler_planilha("Ativos_Config")
+            if not df_config.empty and 'Email' in df_config.columns:
+                meus_configs = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario]
+                for _, row in meus_configs.iterrows():
+                    ativo = str(row.get('Ativo', '')).strip().upper()
+                    if ativo and ativo not in ["NAN", "NONE", ""]:
+                        ativos_buscados.add(ativo)
+
+        if not ativos_buscados:
+            return cotacoes
+
+        # --- 2. BUSCAR TESOURO DIRETO (API) ---
+        try:
+            url_td = "https://tesouro.gabriso.com/bonds"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            res_td = requests.get(url_td, headers=headers, timeout=10)
             
-            for i in range(0, num_colunas, 2):
-                if i + 1 < num_colunas:
-                    col_ativo = df_cot.columns[i]
-                    col_preco = df_cot.columns[i+1]
+            if res_td.status_code == 200:
+                data_td = res_td.json()
+                palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
+                palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
+                
+                for bond in data_td.get("bonds", []):
+                    nome = str(bond.get("name", "")).strip().upper()
+                    valor = float(bond.get("unitary_redemption_value", 0.0))
                     
-                    for idx, row in df_cot.iterrows():
-                        ativo = str(row[col_ativo]).strip().upper()
-                        val = row[col_preco]
-                        
-                        if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
-                            val_str = str(val).strip().upper()
-                            if val_str not in ["NAN", "NONE", "", "#N/A", "#REF!", "#VALUE!"]:
-                                try:
-                                    if isinstance(val, (int, float)):
-                                        preco = float(val)
-                                    else:
-                                        if "R$" in val_str:
-                                            val_str = val_str.replace("R$", "").strip()
-                                        if "," in val_str:
-                                            val_str = val_str.replace(".", "").replace(",", ".")
-                                        preco = float(val_str)
-                                    
-                                    cotacoes[ativo] = preco
-                                except ValueError:
-                                    pass 
+                    tem_permitida = any(p in nome for p in palavras_permitidas)
+                    tem_proibida = any(p in nome for p in palavras_nao_permitidas)
+                    
+                    # Se o título bater com a regra OU se for um título que o usuário já possui na carteira
+                    if (tem_permitida and not tem_proibida) or (nome in ativos_buscados):
+                        if nome in ativos_buscados:
+                            cotacoes[nome] = valor
+                            ativos_buscados.remove(nome) # Tira da lista para não mandar pro Yahoo Finance
+        except Exception as e:
+            print(f"Aviso: Falha na API do Tesouro Direto: {e}")
+
+        # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE ---
+        if ativos_buscados:
+            tickers_yf = []
+            mapa_tickers = {}
+            
+            for ativo in ativos_buscados:
+                ticker = ativo
+                # Mágica de Reconhecimento: Se o ativo tem um número no final (ex: ITUB4, MXRF11) 
+                # e não tem ponto na string, é um ativo brasileiro. Adicionamos o ".SA" nativo do Yahoo.
+                if "." not in ticker and re.search(r'\d+$', ticker):
+                    ticker = f"{ticker}.SA"
+                
+                tickers_yf.append(ticker)
+                mapa_tickers[ticker] = ativo # Guarda a referência para devolver o nome limpo
+
+            try:
+                # Faz o download em lote de todos os preços de uma vez só (Super Rápido!)
+                dados_yf = yf.download(tickers_yf, period="1d", progress=False)
+                
+                if not dados_yf.empty and 'Close' in dados_yf:
+                    if len(tickers_yf) == 1:
+                        # Quando é apenas 1 ticker, o DataFrame tem um formato simples
+                        preco = float(dados_yf['Close'].iloc[-1])
+                        if pd.notna(preco):
+                            cotacoes[mapa_tickers[tickers_yf[0]]] = preco
+                    else:
+                        # Multi-tickers retorna colunas aninhadas
+                        for ticker in tickers_yf:
+                            try:
+                                preco = float(dados_yf['Close'][ticker].iloc[-1])
+                                if pd.notna(preco):
+                                    cotacoes[mapa_tickers[ticker]] = preco
+                            except:
+                                pass
+            except Exception as e:
+                print(f"Aviso: Falha no Yahoo Finance: {e}")
+
         return cotacoes
     except Exception as e:
-        print(f"Erro ao ler aba de cotações: {e}")
-        return {}
+        print(f"Erro geral ao ler cotações: {e}")
+        return cotacoes
 
 # ==========================================
 # MÁGICA DO CACHE: Agrupamento também na RAM
