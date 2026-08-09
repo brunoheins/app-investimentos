@@ -10,27 +10,44 @@ def render():
     
     email_logado = st.session_state.email.strip().lower()
     
-    # Abas nativas do Streamlit (limpas, sem CSS injetado para não quebrar o layout)
-    tab_export, tab_import = st.tabs(["📤 Exportar para Excel", "📥 Importar do Excel"])
+    # ==========================================
+    # MÁGICA VISUAL: NAVEGAÇÃO COM BOTÕES NATIVOS
+    # ==========================================
+    # Inicializa a memória para saber em qual tela estamos
+    if "tela_backup" not in st.session_state:
+        st.session_state.tela_backup = "exportar"
+        
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Se a tela atual for exportar, o botão fica em destaque (primary)
+        if st.button("📤 Exportar para Excel", use_container_width=True, type="primary" if st.session_state.tela_backup == "exportar" else "secondary"):
+            st.session_state.tela_backup = "exportar"
+            st.rerun()
+            
+    with col2:
+        # Se a tela atual for importar, o botão fica em destaque (primary)
+        if st.button("📥 Importar do Excel", use_container_width=True, type="primary" if st.session_state.tela_backup == "importar" else "secondary"):
+            st.session_state.tela_backup = "importar"
+            st.rerun()
+
+    st.divider() # Cria uma linha separadora elegante abaixo dos botões
     
     # ==========================================
     # LÓGICA DE EXPORTAÇÃO (EXCEL FÍSICO)
     # ==========================================
-    with tab_export:
+    if st.session_state.tela_backup == "exportar":
         st.subheader("Gerar Planilha de Backup")
         st.write("Baixe todas as suas informações em um arquivo Excel consolidado. O arquivo conterá abas separadas para cada seção, preservando sua privacidade (sem a coluna de e-mail).")
         
-        # Botão com destaque (primary)
         if st.button("Gerar Arquivo Excel", type="primary", use_container_width=True):
             with st.spinner("Compilando seus dados em Excel..."):
                 abas_alvo = ["Configuracao", "Depositos", "Investimentos"]
                 
-                # Cria um arquivo temporário real no disco do servidor
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                     caminho_temp = tmp.name
                     
                 try:
-                    # Salva os dados nesse arquivo físico (Resolve o problema do Google Drive)
                     with pd.ExcelWriter(caminho_temp, engine='xlsxwriter') as writer:
                         for aba in abas_alvo:
                             df = ler_planilha(aba)
@@ -46,12 +63,10 @@ def render():
                             else:
                                 pd.DataFrame({"Aviso": ["Aba sem dados"]}).to_excel(writer, sheet_name=aba, index=False)
                                 
-                    # Lê o arquivo recém-criado em modo binário
                     with open(caminho_temp, "rb") as f:
                         processed_data = f.read()
                         
                 finally:
-                    # Limpa o arquivo do disco imediatamente após ler (segurança e performance)
                     if os.path.exists(caminho_temp):
                         os.remove(caminho_temp)
                 
@@ -68,7 +83,7 @@ def render():
     # ==========================================
     # LÓGICA DE IMPORTAÇÃO (EXCEL)
     # ==========================================
-    with tab_import:
+    elif st.session_state.tela_backup == "importar":
         st.subheader("Restaurar a partir de Planilha Excel")
         st.write("Suba o arquivo `.xlsx` de backup gerado anteriormente pelo sistema.")
         
@@ -90,7 +105,6 @@ def render():
                 
                 st.warning("⚠️ Atenção: Esta ação irá modificar seu banco de dados na nuvem e não poderá ser desfeita.")
                 
-                # Botão com destaque (primary)
                 if st.button("🚀 Iniciar Restauração via Excel", type="primary", use_container_width=True):
                     with st.spinner("Processando restauração dos dados... Isso pode demorar um pouco."):
                         
@@ -102,12 +116,9 @@ def render():
                                 df_novo = pd.read_excel(xls, sheet_name=aba)
                                 df_novo = df_novo.dropna(how='all')
                                 
-                                # Ignora as abas de aviso
                                 if not df_novo.empty and "Aviso" not in df_novo.columns:
-                                    # Injeta o e-mail do usuário atual
                                     df_novo['Email'] = email_logado
                                     
-                                    # MÁGICA DO ALINHAMENTO: Lê o cabeçalho original e reordena as colunas
                                     df_molde = ler_planilha(aba)
                                     if not df_molde.empty:
                                         df_novo = df_novo.reindex(columns=df_molde.columns)
