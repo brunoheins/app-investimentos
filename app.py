@@ -3,7 +3,7 @@ import pandas as pd
 from utils import ler_planilha, registrar_novo_usuario
 
 # A configuração da página DEVE ser a primeira linha do app
-st.set_page_config(page_title="App Investimentos v1.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="App Investimentos v2.0", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -16,7 +16,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Importando as telas
-from menu import resumo, saldo, aportes, configuracao, lancamentos, perfil, backup
+from menu import resumo, saldo, aportes, configuracao, lancamentos, perfil, backup, dividendos
 
 # Variáveis Globais de Sessão
 if 'logado' not in st.session_state:
@@ -155,7 +155,8 @@ else:
         ],
         "Visão Geral": [
             st.Page(resumo.render, title="Resumo da Aplicação", icon="💼", default=True, url_path="resumo"),
-            st.Page(saldo.render, title="Evolução do Saldo", icon="📈", url_path="saldo")
+            st.Page(saldo.render, title="Evolução do Saldo", icon="📈", url_path="saldo"),
+            st.Page(dividendos.render, title="Dashboard de Dividendos", icon="💸")
         ],
         "Operacional": [
             st.Page(aportes.render, title="Guia de Aportes", icon="🎯", url_path="aportes"),
