@@ -67,7 +67,7 @@ def render():
             return
 
         # Prepara os dados (Soma tudo que ele tem de cada ativo)
-        meus_invest['Ativo'] = meus_invest['Ativo'].astype(str).str.strip().upper()
+        meus_invest['Ativo'] = meus_invest['Ativo'].astype(str).str.strip().str.upper()
         meus_invest['Quantidade'] = meus_invest['Quantidade'].apply(extrair_numero_br)
         carteira_agrupada = meus_invest.groupby('Ativo')['Quantidade'].sum().reset_index()
         carteira_agrupada = carteira_agrupada[carteira_agrupada['Quantidade'] > 0]
