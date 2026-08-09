@@ -239,7 +239,7 @@ def render():
         st.markdown("---")
         st.subheader("📊 Termômetro da Carteira (Antes do Aporte)")
         st.dataframe(
-            df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.applymap(
+            df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.map(
                 lambda x: 'color: #00C851' if '🟢' in str(x) else ('color: #ff4444' if '🔴' in str(x) else 'color: #ffbb33'), 
                 subset=['Status']
             ),
