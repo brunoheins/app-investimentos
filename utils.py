@@ -46,6 +46,10 @@ def formata_br(valor):
     except:
         return "R$ 0,00"
 
+# ==========================================
+# MÁGICA DO CACHE: Salva na RAM por 5 minutos
+# ==========================================
+@st.cache_data(ttl=300, show_spinner=False)
 def ler_planilha(aba_nome):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -54,7 +58,7 @@ def ler_planilha(aba_nome):
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet(aba_nome)
         
-        # SOLUÇÃO: Lê o texto exato para evitar que a biblioteca americana engula nossas vírgulas
+        # Lê o texto exato para evitar que a biblioteca americana engula nossas vírgulas
         valores = sheet.get_all_values()
         if not valores:
             return pd.DataFrame()
@@ -88,7 +92,6 @@ def salvar_configuracao(email, dados_dict):
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Configuracao")
         
-        # Proteção extra na hora de ler para encontrar o usuário
         valores = sheet.get_all_values()
         df = pd.DataFrame(valores[1:], columns=valores[0]) if len(valores) > 1 else pd.DataFrame(columns=["Email"])
         
@@ -105,6 +108,8 @@ def salvar_configuracao(email, dados_dict):
             sheet.update(f"A{row_num}:J{row_num}", [row_values])
         else:
             sheet.append_row(row_values)
+            
+        st.cache_data.clear() # Limpa a memória após escrever
         return True
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
@@ -123,7 +128,6 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             sheet = client.open("App_Investimentos").add_worksheet(title="Ativos_Config", rows=100, cols=4)
             sheet.append_row(["Email", "Categoria", "Ativo", "Peso"])
             
-        # Proteção na leitura dos ativos velhos
         valores = sheet.get_all_values()
         if valores:
             df_all = pd.DataFrame(valores[1:], columns=valores[0])
@@ -156,28 +160,22 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             
         sheet.clear()
         sheet.update("A1", dados_finais)
+        
+        st.cache_data.clear() # Limpa a memória após escrever
         return True
     except Exception as e:
         st.error(f"Erro ao salvar ativos: {e}")
         return False
 
 def obter_cotacoes():
-    """
-    Lê a aba 'Cotacao' e cria um dicionário de preços.
-    Possui uma trava de segurança: pré-carrega o Preço de Custo (Preço Médio) do usuário.
-    Se encontrar a cotação online, atualiza. Se não encontrar, usa o custo para o dinheiro não sumir.
-    """
-    import pandas as pd
-    import streamlit as st
-    from utils import ler_planilha, extrair_numero_br
-
     try:
         cotacoes = {}
         
         # --- PASSO 1: PRÉ-CARREGAR O PREÇO DE CUSTO (TRAVA DE SEGURANÇA) ---
         if 'email' in st.session_state:
             email_usuario = st.session_state.email.strip().lower()
-            df_invest = ler_planilha("Investimentos")
+            # Como ler_planilha tem cache, essa chamada será super rápida
+            df_invest = ler_planilha("Investimentos") 
             
             if not df_invest.empty and 'Email' in df_invest.columns:
                 df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
@@ -186,7 +184,6 @@ def obter_cotacoes():
                 for _, row in meus_invest.iterrows():
                     ativo = str(row.get('Ativo', '')).strip().upper()
                     
-                    # Tenta pegar o PrecoMedio ou Preco que foi digitado no lançamento
                     preco_custo = 0.0
                     if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
                         preco_custo = extrair_numero_br(row['PrecoMedio'])
@@ -194,7 +191,6 @@ def obter_cotacoes():
                         preco_custo = extrair_numero_br(row['Preco'])
                         
                     if ativo and preco_custo > 0:
-                        # Salva o preço de custo no dicionário provisoriamente
                         cotacoes[ativo] = preco_custo
 
         # --- PASSO 2: LER A COTAÇÃO ONLINE E SOBRESCREVER (SE EXISTIR) ---
@@ -202,7 +198,6 @@ def obter_cotacoes():
         if not df_cot.empty:
             num_colunas = len(df_cot.columns)
             
-            # Itera pelas colunas de 2 em 2
             for i in range(0, num_colunas, 2):
                 if i + 1 < num_colunas:
                     col_ativo = df_cot.columns[i]
@@ -212,7 +207,6 @@ def obter_cotacoes():
                         ativo = str(row[col_ativo]).strip().upper()
                         val = row[col_preco]
                         
-                        # Ignorar linhas vazias ou erros de fórmula do Sheets (#N/A)
                         if ativo and ativo not in ["NAN", "NONE", "", "#N/A"]:
                             val_str = str(val).strip().upper()
                             if val_str not in ["NAN", "NONE", "", "#N/A", "#REF!", "#VALUE!"]:
@@ -220,14 +214,12 @@ def obter_cotacoes():
                                     if isinstance(val, (int, float)):
                                         preco = float(val)
                                     else:
-                                        # Limpa padrão brasileiro e símbolo de moeda
                                         if "R$" in val_str:
                                             val_str = val_str.replace("R$", "").strip()
                                         if "," in val_str:
                                             val_str = val_str.replace(".", "").replace(",", ".")
                                         preco = float(val_str)
                                     
-                                    # MÁGICA: Sobrescreve o preço de custo pelo preço de mercado real
                                     cotacoes[ativo] = preco
                                 except ValueError:
                                     pass 
@@ -236,8 +228,11 @@ def obter_cotacoes():
         print(f"Erro ao ler aba de cotações: {e}")
         return {}
 
+# ==========================================
+# MÁGICA DO CACHE: Agrupamento também na RAM
+# ==========================================
+@st.cache_data(ttl=300, show_spinner=False)
 def obter_ativos_por_categoria():
-    """Lê a aba Cotacao e agrupa os ativos dinamicamente, sem depender da posição da coluna"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -252,7 +247,6 @@ def obter_ativos_por_categoria():
             cabecalhos = valores[0]
             mapa_colunas = {}
             
-            # Mapeia dinamicamente qual categoria está em qual coluna
             for i, col in enumerate(cabecalhos):
                 c = str(col).strip().upper()
                 if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: mapa_colunas[i] = "Ações"
@@ -262,11 +256,9 @@ def obter_ativos_por_categoria():
                 elif c in ["REITS", "REIT"]: mapa_colunas[i] = "REITs"
                 elif c in ["ETFS", "ETF"]: mapa_colunas[i] = "ETFs"
             
-            # Prepara a lista vazia para as categorias que ele encontrou
             for cat in mapa_colunas.values():
                 cat_dict[cat] = []
                 
-            # Popula as listas
             for linha in valores[1:]:
                 for idx, cat in mapa_colunas.items():
                     if len(linha) > idx:
@@ -274,7 +266,6 @@ def obter_ativos_por_categoria():
                         if ativo and ativo != "NAN" and ativo not in cat_dict[cat]:
                             cat_dict[cat].append(ativo)
                             
-            # Ordem alfabética para facilitar a busca no menu
             for cat in cat_dict:
                 cat_dict[cat].sort()
                 
@@ -283,7 +274,6 @@ def obter_ativos_por_categoria():
         return {}
 
 def registrar_deposito(email, data, valor):
-    """Salva um novo aporte financeiro na aba Depositos"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -296,16 +286,16 @@ def registrar_deposito(email, data, valor):
             sheet = client.open("App_Investimentos").add_worksheet(title="Depositos", rows=100, cols=3)
             sheet.append_row(["Email", "Data", "Valor"])
             
-        # Formata o valor numérico para salvar no formato BR (ex: 1500,50)
         valor_str = f"{valor:.2f}".replace('.', ',')
         sheet.append_row([email, data, valor_str])
+        
+        st.cache_data.clear() # Limpa a memória após escrever
         return True
     except Exception as e:
         st.error(f"Erro ao salvar depósito: {e}")
         return False
 
 def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio):
-    """Salva uma nova compra de ativo na aba Investimentos"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -316,15 +306,15 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio):
         qtd_str = f"{quantidade:.4f}".replace('.', ',').rstrip('0').rstrip(',')
         preco_str = f"{preco_medio:.4f}".replace('.', ',')
         
-        # O último campo em branco é o PrecoAtual (que agora buscamos automático da aba Cotacao)
         sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, ""])
+        
+        st.cache_data.clear() # Limpa a memória após escrever
         return True
     except Exception as e:
         st.error(f"Erro ao salvar compra: {e}")
         return False
 
 def conectar_planilha(aba):
-    """Função auxiliar para conectar e retornar a aba correta rapidamente"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds_dict = json.loads(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
@@ -337,20 +327,17 @@ def registrar_novo_usuario(nome, email, senha):
         valores = sheet.get_all_values()
         if not valores: return False, "A aba Usuarios está vazia."
         
-        # Mapeamento Dinâmico (Lê o cabeçalho e descobre a posição das colunas)
         cabecalho = [str(c).strip().lower() for c in valores[0]]
         if 'email' not in cabecalho: return False, "Coluna 'Email' não encontrada na planilha."
         
         idx_email = cabecalho.index('email')
         email_lower = email.strip().lower()
         
-        # Trava de Segurança: Checa se o e-mail já existe
         if len(valores) > 1:
             for linha in valores[1:]:
                 if len(linha) > idx_email and str(linha[idx_email]).strip().lower() == email_lower:
                     return False, "⚠️ Este e-mail já está cadastrado. Caso não se recorde da senha, vá na aba 'Esqueci a Senha' para recuperá-la."
                     
-        # Monta a nova linha de forma abstrata, respeitando o tamanho do cabeçalho
         nova_linha = [""] * len(cabecalho)
         
         if 'nome' in cabecalho: nova_linha[cabecalho.index('nome')] = nome.strip()
@@ -359,12 +346,13 @@ def registrar_novo_usuario(nome, email, senha):
         if 'status' in cabecalho: nova_linha[cabecalho.index('status')] = "Pendente"
         
         sheet.append_row(nova_linha)
+        
+        st.cache_data.clear() # Limpa a memória após novo cadastro
         return True, "✅ Cadastro enviado com sucesso! Aguarde a liberação do administrador."
     except Exception as e:
         return False, f"Erro ao cadastrar: {e}"
 
 def verificar_email_cadastrado(email):
-    """Busca dinamicamente se o e-mail existe na base de dados"""
     try:
         sheet = conectar_planilha("Usuarios")
         valores = sheet.get_all_values()
@@ -384,9 +372,7 @@ def verificar_email_cadastrado(email):
         return False
 
 def enviar_codigo_email(email_destino, codigo):
-    """Conecta ao Gmail e dispara o e-mail com o código de segurança"""
     try:
-        # Puxa as credenciais seguras do Streamlit Secrets
         remetente = st.secrets["email"]["endereco"]
         senha_app = st.secrets["email"]["senha_app"]
         
@@ -398,7 +384,6 @@ def enviar_codigo_email(email_destino, codigo):
         corpo = f"Olá!\n\nVocê solicitou a recuperação de senha no seu App de Investimentos.\n\nSeu código de segurança é: {codigo}\n\nSe você não solicitou esta alteração, apenas ignore este e-mail."
         msg.attach(MIMEText(corpo, 'plain'))
         
-        # Conexão com o servidor do Google
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(remetente, senha_app)
@@ -410,7 +395,6 @@ def enviar_codigo_email(email_destino, codigo):
         return False, f"Erro ao enviar o e-mail. Verifique as configurações (secrets): {e}"
 
 def redefinir_senha_aprovada(email, nova_senha):
-    """Grava a nova senha no banco de dados de forma abstrata"""
     try:
         sheet = conectar_planilha("Usuarios")
         valores = sheet.get_all_values()
@@ -425,6 +409,7 @@ def redefinir_senha_aprovada(email, nova_senha):
             if len(linha) > max(idx_email, idx_senha):
                 if str(linha[idx_email]).strip().lower() == email_lower:
                     sheet.update_cell(i, idx_senha + 1, nova_senha) 
+                    st.cache_data.clear() # Limpa a memória após escrever
                     return True, "✅ Senha alterada com sucesso! Você já pode fazer login."
         return False, "Usuário não encontrado."
     except Exception as e:
@@ -446,6 +431,8 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
                     sheet.update_cell(i, cabecalho.index('nome') + 1, novo_nome)
                 if nova_senha and 'senha' in cabecalho:
                     sheet.update_cell(i, cabecalho.index('senha') + 1, nova_senha)
+                
+                st.cache_data.clear() # Limpa a memória após escrever
                 return True, "✅ Perfil atualizado com sucesso!"
                 
         return False, "Usuário não encontrado."
@@ -453,43 +440,32 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
         return False, f"Erro ao atualizar perfil: {e}"
 
 def atualizar_historico_usuario(email, nome_aba, df_editado):
-    """
-    Substitui apenas os registros do usuário na aba especificada, 
-    mantendo os dados dos outros usuários intactos.
-    """
     import pandas as pd
     import streamlit as st
     try:
-        # 1. Puxa os dados atuais da aba
         df_full = ler_planilha(nome_aba)
         
-        # 2. Separa os dados dos OUTROS usuários
         if not df_full.empty and 'Email' in df_full.columns:
             df_full['Email'] = df_full['Email'].astype(str).str.strip().str.lower()
             df_outros = df_full[df_full['Email'] != email].copy()
         else:
             df_outros = pd.DataFrame()
             
-        # 3. Recoloca o e-mail no dataframe editado pelo usuário (pois ele fica oculto na UI)
         df_novo_usuario = df_editado.copy()
         if not df_novo_usuario.empty:
             df_novo_usuario['Email'] = email
             
-        # 4. Une os dados (Outros + Usuário atualizado)
         df_final = pd.concat([df_outros, df_novo_usuario], ignore_index=True)
         
-        # 5. Mantém a ordem original das colunas
         cabecalho_original = df_full.columns.tolist() if not df_full.empty else df_final.columns.tolist()
         for col in cabecalho_original:
             if col not in df_final.columns:
                 df_final[col] = ""
         df_final = df_final[cabecalho_original]
         
-        # 6. Conecta e sobrescreve a aba (Substitua "conectar_google_sheets" pela sua função de conexão se tiver nome diferente)
         from oauth2client.service_account import ServiceAccountCredentials
         import gspread
         
-        # Como o utils.py já faz acessos à planilha, usamos o mesmo cliente
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
         client = gspread.authorize(creds)
@@ -497,21 +473,17 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
         planilha = client.open("App_Investimentos")
         aba = planilha.worksheet(nome_aba)
         
-        # Limpa e atualiza
         aba.clear()
         dados_salvar = [df_final.columns.values.tolist()] + df_final.fillna("").values.tolist()
         aba.update(dados_salvar)
         
+        st.cache_data.clear() # Limpa a memória após edição de massa
         return True
     except Exception as e:
         st.error(f"Erro ao salvar edição: {e}")
         return False
 
 def deletar_registros_usuario(nome_aba, email):
-    """
-    Deleta todas as linhas pertencentes ao email especificado em uma aba.
-    Usa o método de Lote (Batch) para evitar o Erro 429 (Limite da API do Google).
-    """
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
     import gspread
@@ -519,10 +491,8 @@ def deletar_registros_usuario(nome_aba, email):
 
     try:
         NOME_PLANILHA = "App_Investimentos" 
-        
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # Autenticação Segura
         chave_gcp = st.secrets["gcp_service_account"]
         if isinstance(chave_gcp, str):
             chave_dict = json.loads(chave_gcp)
@@ -543,35 +513,26 @@ def deletar_registros_usuario(nome_aba, email):
             return False, f"Coluna 'Email' não encontrada na aba {nome_aba}."
             
         idx_email = cabecalho.index("Email")
-        
-        # MÁGICA DO LOTE: Separa o joio do trigo no Python (não no Google)
-        linhas_mantidas = [registros[0]] # Começa guardando o cabeçalho
+        linhas_mantidas = [registros[0]] 
         teve_exclusao = False
         
         for linha in registros[1:]:
-            # Se a linha pertencer ao usuário logado, nós ignoramos (excluímos virtualmente)
             if len(linha) > idx_email and linha[idx_email].strip().lower() == email.strip().lower():
                 teve_exclusao = True
             else:
-                # Se for de outro usuário (ou vazia), nós guardamos
                 linhas_mantidas.append(linha)
                 
-        # Se encontrou dados do usuário, atualiza a planilha toda de uma vez só!
         if teve_exclusao:
-            aba.clear() # Limpa a aba inteira (1 requisição)
+            aba.clear() 
             if len(linhas_mantidas) > 0:
-                aba.append_rows(linhas_mantidas, value_input_option='USER_ENTERED') # Grava o que sobrou (1 requisição)
+                aba.append_rows(linhas_mantidas, value_input_option='USER_ENTERED')
             
+        st.cache_data.clear() # Limpa a memória após exclusão
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao apagar dados do Google Sheets: {str(e)}"
 
-
 def inserir_lote_registros(nome_aba, df):
-    """
-    Insere um DataFrame inteiro em uma aba do Google Sheets de forma segura.
-    Retorna (True/False, Mensagem).
-    """
     import streamlit as st
     from oauth2client.service_account import ServiceAccountCredentials
     import gspread
@@ -582,10 +543,8 @@ def inserir_lote_registros(nome_aba, df):
 
     try:
         NOME_PLANILHA = "App_Investimentos"
-        
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # MÁGICA DA AUTENTICAÇÃO: Transforma a senha em dicionário caso o Streamlit leia como texto
         chave_gcp = st.secrets["gcp_service_account"]
         if isinstance(chave_gcp, str):
             chave_dict = json.loads(chave_gcp)
@@ -597,12 +556,12 @@ def inserir_lote_registros(nome_aba, df):
         
         aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
         
-        # Converte tudo para texto e limpa nulos/datas quebradas
         df_limpo = df.astype(str).replace(["nan", "NaT", "None", "<NA>"], "")
         dados = df_limpo.values.tolist()
         
         aba.append_rows(dados, value_input_option='USER_ENTERED')
         
+        st.cache_data.clear() # Limpa a memória após inserção em massa
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao salvar no Google Sheets: {str(e)}"
