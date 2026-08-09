@@ -295,10 +295,12 @@ def obter_cotacoes():
 def obter_ativos_por_categoria(email_usuario):
     """
     Lê a aba Ativos_Config para RV e puxa o Tesouro Direto via API para Renda Fixa.
+    Oculta categorias que não possuem nenhum ativo configurado.
     """
     import requests
     import pandas as pd
     
+    # Inicializa todas as categorias possíveis
     cat_dict = {
         "Renda Fixa": [], "Ações": [], "FIIs": [], 
         "Stocks": [], "REITs": [], "ETFs": []
@@ -354,12 +356,16 @@ def obter_ativos_por_categoria(email_usuario):
         for cat in cat_dict:
             cat_dict[cat].sort()
             
-        return cat_dict
+        # 4. MÁGICA DA OCULTAÇÃO: Filtra e retorna apenas as categorias que têm pelo menos 1 ativo
+        cat_dict_filtrado = {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
+            
+        return cat_dict_filtrado
         
     except Exception as e:
         print(f"Erro ao agrupar ativos: {e}")
-        return cat_dict
-
+        # Se der erro, retorna o dicionário limpo também
+        return {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
+        
 
 def registrar_deposito(email, data, valor):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
