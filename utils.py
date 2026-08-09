@@ -294,46 +294,63 @@ def obter_cotacoes():
 @st.cache_data(ttl=300, show_spinner=False)
 def obter_ativos_por_categoria(email_usuario):
     """
-    Lê a aba Ativos_Config e retorna apenas os ativos cadastrados pelo usuário logado,
-    agrupados por categoria.
+    Lê a aba Ativos_Config para RV e puxa o Tesouro Direto via API para Renda Fixa.
     """
-    # Estrutura base esperada pelo aplicativo
+    import requests
+    import pandas as pd
+    
     cat_dict = {
         "Renda Fixa": [], "Ações": [], "FIIs": [], 
         "Stocks": [], "REITs": [], "ETFs": []
     }
     
     try:
-        # Usa a função nativa do utils para ler a planilha (que já tem cache)
+        # 1. Puxa as configurações personalizadas do usuário (Ações, FIIs, etc)
         df_config = ler_planilha("Ativos_Config")
         
-        if df_config.empty or 'Email' not in df_config.columns:
-            return cat_dict
+        if not df_config.empty and 'Email' in df_config.columns:
+            meus_ativos = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario.strip().lower()]
             
-        # Filtra apenas os dados do usuário atual
-        meus_ativos = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario.strip().lower()]
-        
-        for _, row in meus_ativos.iterrows():
-            categoria_bruta = str(row.get('Categoria', '')).strip().upper()
-            ativo = str(row.get('Ativo', '')).strip().upper()
+            for _, row in meus_ativos.iterrows():
+                categoria_bruta = str(row.get('Categoria', '')).strip().upper()
+                ativo = str(row.get('Ativo', '')).strip().upper()
+                
+                categoria = ""
+                if categoria_bruta in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: categoria = "Ações"
+                elif categoria_bruta in ["FIIS", "FII"]: categoria = "FIIs"
+                elif categoria_bruta in ["IPCA", "RENDA FIXA", "RF"]: categoria = "Renda Fixa"
+                elif categoria_bruta in ["STOCKS", "STOCK"]: categoria = "Stocks"
+                elif categoria_bruta in ["REITS", "REIT"]: categoria = "REITs"
+                elif categoria_bruta in ["ETFS", "ETF"]: categoria = "ETFs"
+                
+                if ativo and ativo != "NAN" and categoria:
+                    if ativo not in cat_dict[categoria]:
+                        cat_dict[categoria].append(ativo)
+                        
+        # 2. INJEÇÃO DO TESOURO DIRETO: Preenche a Renda Fixa com os títulos públicos atuais
+        try:
+            url_td = "https://tesouro.gabriso.com/bonds"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            res_td = requests.get(url_td, headers=headers, timeout=10)
             
-            # Normaliza o nome da categoria para bater com o padrão do app
-            categoria = ""
-            if categoria_bruta in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: categoria = "Ações"
-            elif categoria_bruta in ["FIIS", "FII"]: categoria = "FIIs"
-            elif categoria_bruta in ["IPCA", "RENDA FIXA", "RF"]: categoria = "Renda Fixa"
-            elif categoria_bruta in ["STOCKS", "STOCK"]: categoria = "Stocks"
-            elif categoria_bruta in ["REITS", "REIT"]: categoria = "REITs"
-            elif categoria_bruta in ["ETFS", "ETF"]: categoria = "ETFs"
-            
-            # Se for um ativo válido, adiciona na lista
-            if ativo and ativo != "NAN" and categoria:
-                if categoria not in cat_dict:
-                    cat_dict[categoria] = []
-                if ativo not in cat_dict[categoria]:
-                    cat_dict[categoria].append(ativo)
+            if res_td.status_code == 200:
+                data_td = res_td.json()
+                palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
+                palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
+                
+                for bond in data_td.get("bonds", []):
+                    nome = str(bond.get("name", "")).strip().upper()
                     
-        # Coloca em ordem alfabética para o menu ficar bonito
+                    tem_permitida = any(p in nome for p in palavras_permitidas)
+                    tem_proibida = any(p in nome for p in palavras_nao_permitidas)
+                    
+                    if tem_permitida and not tem_proibida:
+                        if nome not in cat_dict["Renda Fixa"]:
+                            cat_dict["Renda Fixa"].append(nome)
+        except Exception as e:
+            print(f"Aviso: Falha ao carregar Tesouro Direto nos menus: {e}")
+            
+        # 3. Coloca todas as categorias em ordem alfabética para facilitar o clique
         for cat in cat_dict:
             cat_dict[cat].sort()
             
