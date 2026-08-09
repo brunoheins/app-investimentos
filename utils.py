@@ -289,49 +289,60 @@ def obter_cotacoes():
         return cotacoes
 
 # ==========================================
-# MÁGICA DO CACHE: Agrupamento também na RAM
+# MÁGICA DO CACHE: Agrupamento personalizado na RAM
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
-def obter_ativos_por_categoria():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+def obter_ativos_por_categoria(email_usuario):
+    """
+    Lê a aba Ativos_Config e retorna apenas os ativos cadastrados pelo usuário logado,
+    agrupados por categoria.
+    """
+    # Estrutura base esperada pelo aplicativo
+    cat_dict = {
+        "Renda Fixa": [], "Ações": [], "FIIs": [], 
+        "Stocks": [], "REITs": [], "ETFs": []
+    }
+    
     try:
-        creds_dict = json.loads(st.secrets["gcp_service_account"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open("App_Investimentos").worksheet("Cotacao")
+        # Usa a função nativa do utils para ler a planilha (que já tem cache)
+        df_config = ler_planilha("Ativos_Config")
         
-        valores = sheet.get_all_values()
-        cat_dict = {}
+        if df_config.empty or 'Email' not in df_config.columns:
+            return cat_dict
+            
+        # Filtra apenas os dados do usuário atual
+        meus_ativos = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario.strip().lower()]
         
-        if len(valores) > 1:
-            cabecalhos = valores[0]
-            mapa_colunas = {}
+        for _, row in meus_ativos.iterrows():
+            categoria_bruta = str(row.get('Categoria', '')).strip().upper()
+            ativo = str(row.get('Ativo', '')).strip().upper()
             
-            for i, col in enumerate(cabecalhos):
-                c = str(col).strip().upper()
-                if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: mapa_colunas[i] = "Ações"
-                elif c in ["FIIS", "FII"]: mapa_colunas[i] = "FIIs"
-                elif c in ["IPCA", "RENDA FIXA", "RF"]: mapa_colunas[i] = "Renda Fixa"
-                elif c in ["STOCKS", "STOCK"]: mapa_colunas[i] = "Stocks"
-                elif c in ["REITS", "REIT"]: mapa_colunas[i] = "REITs"
-                elif c in ["ETFS", "ETF"]: mapa_colunas[i] = "ETFs"
+            # Normaliza o nome da categoria para bater com o padrão do app
+            categoria = ""
+            if categoria_bruta in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: categoria = "Ações"
+            elif categoria_bruta in ["FIIS", "FII"]: categoria = "FIIs"
+            elif categoria_bruta in ["IPCA", "RENDA FIXA", "RF"]: categoria = "Renda Fixa"
+            elif categoria_bruta in ["STOCKS", "STOCK"]: categoria = "Stocks"
+            elif categoria_bruta in ["REITS", "REIT"]: categoria = "REITs"
+            elif categoria_bruta in ["ETFS", "ETF"]: categoria = "ETFs"
             
-            for cat in mapa_colunas.values():
-                cat_dict[cat] = []
-                
-            for linha in valores[1:]:
-                for idx, cat in mapa_colunas.items():
-                    if len(linha) > idx:
-                        ativo = str(linha[idx]).strip().upper()
-                        if ativo and ativo != "NAN" and ativo not in cat_dict[cat]:
-                            cat_dict[cat].append(ativo)
-                            
-            for cat in cat_dict:
-                cat_dict[cat].sort()
-                
+            # Se for um ativo válido, adiciona na lista
+            if ativo and ativo != "NAN" and categoria:
+                if categoria not in cat_dict:
+                    cat_dict[categoria] = []
+                if ativo not in cat_dict[categoria]:
+                    cat_dict[categoria].append(ativo)
+                    
+        # Coloca em ordem alfabética para o menu ficar bonito
+        for cat in cat_dict:
+            cat_dict[cat].sort()
+            
         return cat_dict
+        
     except Exception as e:
-        return {}
+        print(f"Erro ao agrupar ativos: {e}")
+        return cat_dict
+
 
 def registrar_deposito(email, data, valor):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
