@@ -14,15 +14,14 @@ def normalizar_categoria(cat_str):
     return str(cat_str).strip()
 
 def motor_de_aportes(email, valor_aporte, num_compras):
-    """Cérebro matemático: Calcula as recomendações de compra com base no patrimônio global."""
+    """Cérebro matemático: Calcula as recomendações de compra otimizando trocos e lotes reais."""
     df_conf = ler_planilha("Configuracao")
     df_ativos_conf = ler_planilha("Ativos_Config")
     df_invest = ler_planilha("Investimentos")
 
     if df_conf.empty or email not in df_conf['Email'].astype(str).str.strip().str.lower().values:
-        return [], valor_aporte, "Metas de Alocação Macro não definidas na Configuração."
+        return [], valor_aporte, None, "Metas de Alocação Macro não definidas na Configuração."
     
-    # OBS: Removemos a trava de ativos configurados para não bloquear quem só tem Renda Fixa
     if df_ativos_conf.empty:
         df_ativos_conf = pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
 
@@ -45,21 +44,19 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     df_ativos_conf['Email'] = df_ativos_conf['Email'].astype(str).str.strip().str.lower()
     df_user_ativos = df_ativos_conf[df_ativos_conf['Email'] == email].copy()
     
-    # Busca todas as cotações ao vivo no início do processo
     cotacoes_dict = obter_cotacoes()
 
     # --- 1. LER ATIVOS ALVOS OFICIAIS ---
     ativos_alvos = []
     for _, row in df_user_ativos.iterrows():
         cat = normalizar_categoria(row['Categoria'])
-        if cat == "Renda Fixa": continue # Ignora RF aqui, pois é um bloco livre
+        if cat == "Renda Fixa": continue 
         ativo = str(row['Ativo']).strip().upper()
         val_peso = row.get('Peso') if pd.notna(row.get('Peso')) else row.get('Peso (%)', 0)
         peso_global = cat_targets.get(cat, 0) * (float(val_peso) / 100.0)
         if ativo and ativo != "NAN":
             ativos_alvos.append({'Categoria': cat, 'Ativo': ativo, 'PesoGlobal': peso_global})
 
-    # NOVA REGRA: Injeta a Renda Fixa como um bloco genérico usando o peso Macro
     peso_rf = cat_targets.get("Renda Fixa", 0)
     if peso_rf > 0:
         ativos_alvos.append({'Categoria': 'Renda Fixa', 'Ativo': 'OPORTUNIDADE DE RENDA FIXA', 'PesoGlobal': peso_rf})
@@ -80,12 +77,9 @@ def motor_de_aportes(email, valor_aporte, num_compras):
             df_user_invest['Ativo'] = df_user_invest['Ativo'].astype(str).str.strip().str.upper()
             df_user_invest['Categoria'] = df_user_invest['Categoria'].apply(normalizar_categoria)
             df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(extrair_numero_br)
-            
             df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict).fillna(0.0)
             df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoLive']
 
-            # Se for RF, como o preço não tem cotação online, vamos garantir que considere o Valor investido como Total
-            # (No futuro, você pode implementar a leitura real do patrimônio de RF, mas isso mantém a base)
             for idx_inv, row_inv in df_user_invest.iterrows():
                 if row_inv['Categoria'] == "Renda Fixa" and row_inv['TotalAtual'] == 0:
                     try:
@@ -98,7 +92,7 @@ def motor_de_aportes(email, valor_aporte, num_compras):
                 'TotalAtual': 'sum'
             }).reset_index()
 
-    # --- 3. MATEMÁTICA CORRIGIDA (OUTER JOIN) ---
+    # --- 3. MATEMÁTICA E CÁLCULO DE GAPS ---
     total_atual = df_carteira['TotalAtual'].sum() if not df_carteira.empty else 0
     total_futuro = total_atual + valor_aporte 
     
@@ -106,22 +100,39 @@ def motor_de_aportes(email, valor_aporte, num_compras):
     df_calc['Is_Target'] = df_calc['Is_Target'].fillna(False)
     df_calc['PesoGlobal'] = df_calc['PesoGlobal'].fillna(0)
     df_calc['TotalAtual'] = df_calc['TotalAtual'].fillna(0)
-    
-    # A MÁGICA: Puxa o preço atualizado de todos os ativos da matriz para preencher quem estava vazio
     df_calc['PrecoAtual'] = df_calc['Ativo'].map(cotacoes_dict).fillna(0.0)
     
     df_calc['ValorAlvo'] = df_calc['PesoGlobal'] * total_futuro
     df_calc['Falta_Comprar'] = df_calc['ValorAlvo'] - df_calc['TotalAtual']
     df_calc['TotalAtual_Original'] = df_calc['TotalAtual'].copy()
 
+    # --- PREPARAÇÃO DO TERMÔMETRO VISUAL (RESUMO MACRO) ---
+    df_resumo_macro = df_calc.groupby('Categoria').agg(
+        Alvo=('ValorAlvo', 'sum'),
+        Atual=('TotalAtual', 'sum')
+    ).reset_index()
+    
+    df_resumo_macro['Alvo (%)'] = (df_resumo_macro['Alvo'] / total_futuro * 100).round(1) if total_futuro > 0 else 0
+    df_resumo_macro['Atual (%)'] = (df_resumo_macro['Atual'] / total_atual * 100).round(1) if total_atual > 0 else 0
+    df_resumo_macro['Status'] = df_resumo_macro.apply(
+        lambda x: "🟢 Na Meta" if abs(x['Alvo (%)'] - x['Atual (%)']) <= 2 
+        else ("🔴 Abaixo da Meta" if x['Atual (%)'] < x['Alvo (%)'] else "🟡 Acima da Meta"), 
+        axis=1
+    )
+
+    # --- 4. ALOCAÇÃO COM OTIMIZAÇÃO DE TROCO ---
     aporte_restante = valor_aporte
     compras = []
     ativos_comprados = [] 
+    compras_realizadas = 0
 
-    for i in range(num_compras):
-        if aporte_restante <= 0.01: break
-
+    # Usa um while para garantir que tentará buscar opções até o limite de compras ou o dinheiro acabar
+    tentativas = 0 
+    while compras_realizadas < num_compras and aporte_restante > 0.01 and tentativas < 20:
+        tentativas += 1
+        
         cat_gaps = df_calc.groupby('Categoria')['Falta_Comprar'].sum().sort_values(ascending=False)
+        if cat_gaps.empty: break
         top_cat = cat_gaps.index[0]
         max_cat_gap = cat_gaps.iloc[0]
 
@@ -141,11 +152,10 @@ def motor_de_aportes(email, valor_aporte, num_compras):
                 top_ativo_row = ativos_top_cat.iloc[0]
 
         falta_ativo = top_ativo_row['Falta_Comprar']
-        compras_restantes = num_compras - i
+        compras_restantes = num_compras - compras_realizadas
         valor_parcela = aporte_restante / compras_restantes
 
-        if falta_ativo > 0: valor_alocado = min(valor_parcela, falta_ativo)
-        else: valor_alocado = valor_parcela 
+        valor_teorico_alocado = min(valor_parcela, falta_ativo) if falta_ativo > 0 else valor_parcela 
 
         idx = top_ativo_row.name
         top_ativo = top_ativo_row['Ativo']
@@ -154,34 +164,50 @@ def motor_de_aportes(email, valor_aporte, num_compras):
 
         is_rv = categoria in ["Ações", "FIIs", "Stocks", "REITs", "ETFs"]
         is_br = categoria in ["Ações", "FIIs"]
+        
+        valor_real_gasto = valor_teorico_alocado
         qtd_sugerida_str = "-"
         qtd_faltante_str = "-"
 
         if is_rv and preco_atual > 0:
-            qtd_sugerida = valor_alocado / preco_atual
+            qtd_bruta = valor_teorico_alocado / preco_atual
             qtd_alvo = top_ativo_row['ValorAlvo'] / preco_atual
             qtd_atual = top_ativo_row['TotalAtual_Original'] / preco_atual
             qtd_faltante_total = max(0, qtd_alvo - qtd_atual)
             
             if is_br:
-                qtd_sugerida_str = f"{int(qtd_sugerida)} un"
+                qtd_sugerida = int(qtd_bruta)
+                if qtd_sugerida == 0:
+                    # Filtro de Ativo Caro: O dinheiro da parcela não compra nem 1 cota. 
+                    # Marca como verificado, não gasta o dinheiro e vai pro próximo.
+                    ativos_comprados.append(top_ativo)
+                    df_calc.loc[idx, 'Falta_Comprar'] = -999999 
+                    continue
+                    
+                valor_real_gasto = qtd_sugerida * preco_atual
+                qtd_sugerida_str = f"{qtd_sugerida} un"
                 qtd_faltante_str = f"{int(qtd_faltante_total)} un"
             else:
+                valor_real_gasto = valor_teorico_alocado
+                qtd_sugerida = qtd_bruta
                 qtd_sugerida_str = f"{qtd_sugerida:.4f} un".replace('.', ',')
                 qtd_faltante_str = f"{qtd_faltante_total:.4f} un".replace('.', ',')
 
         compras.append({
-            'Ordem': i + 1, 'Categoria': categoria, 'Ativo': top_ativo, 'Valor': valor_alocado,
+            'Ordem': compras_realizadas + 1, 'Categoria': categoria, 'Ativo': top_ativo, 'Valor': valor_real_gasto,
             'PrecoRef': preco_atual, 'Qtd_Sugerida': qtd_sugerida_str,
             'Qtd_Faltante': qtd_faltante_str, 'Is_RV': is_rv
         })
 
-        df_calc.loc[idx, 'Falta_Comprar'] -= valor_alocado
-        df_calc.loc[idx, 'TotalAtual'] += valor_alocado
+        df_calc.loc[idx, 'Falta_Comprar'] -= valor_real_gasto
+        df_calc.loc[idx, 'TotalAtual'] += valor_real_gasto
         ativos_comprados.append(top_ativo)
-        aporte_restante -= valor_alocado
+        
+        # Mágica do Troco: Subtrai apenas o que gastou de verdade. O troco fica no bolo.
+        aporte_restante -= valor_real_gasto
+        compras_realizadas += 1
 
-    return compras, aporte_restante, None
+    return compras, aporte_restante, df_resumo_macro, None
 
 
 def render():
@@ -193,7 +219,7 @@ def render():
     with col1:
         valor_aporte = st.number_input("💸 Valor do Aporte (R$)", min_value=0.0, value=1000.0, step=100.0)
     with col2:
-        num_compras = st.pills("Dividir em até quantas compras?", options=[1, 2, 3], default=1)
+        num_compras = st.pills("Dividir em até quantas compras?", options=[1, 2, 3, 4, 5], default=1)
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -203,11 +229,23 @@ def render():
             return
 
         with st.spinner("Analisando o balanço real da sua carteira..."):
-            compras, aporte_restante, erro = motor_de_aportes(st.session_state.email, valor_aporte, num_compras)
+            compras, aporte_restante, df_macro, erro = motor_de_aportes(st.session_state.email, valor_aporte, num_compras)
             
             if erro:
                 st.error(f"⚠️ {erro}")
                 return
+                
+        # --- NOVO: TERMÔMETRO DA CARTEIRA ---
+        st.markdown("---")
+        st.subheader("📊 Termômetro da Carteira (Antes do Aporte)")
+        st.dataframe(
+            df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.applymap(
+                lambda x: 'color: #00C851' if '🟢' in str(x) else ('color: #ff4444' if '🔴' in str(x) else 'color: #ffbb33'), 
+                subset=['Status']
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
 
         st.markdown("---")
         st.subheader("🛒 Suas Ordens de Compra Sugeridas")
@@ -218,21 +256,20 @@ def render():
                     st.markdown(f"#### {c['Ordem']}º Compra: `{c['Ativo']}` <span style='font-size:0.8em; color:gray;'>({c['Categoria']})</span>", unsafe_allow_html=True)
                     if c['Is_RV']:
                         c_r1, c_r2, c_r3, c_r4 = st.columns(4)
-                        c_r1.metric("Alocar (R$)", formata_br(c['Valor']))
+                        c_r1.metric("Alocar Exato", formata_br(c['Valor']))
                         c_r2.metric("Cotação", formata_br(c['PrecoRef']) if c['PrecoRef'] > 0 else "N/A")
                         c_r3.metric("Comprar", c['Qtd_Sugerida'])
                         c_r4.metric("Falta p/ Meta", c['Qtd_Faltante'])
                     else:
-                        # Renderização customizada e mais elegante para a Renda Fixa
                         c_r1, c_r2, c_r3 = st.columns(3)
-                        c_r1.metric("Alocar (R$)", formata_br(c['Valor']))
+                        c_r1.metric("Alocar Exato", formata_br(c['Valor']))
                         c_r2.metric("Estratégia", "Escolha Livre")
                         c_r3.metric("Sugestão", "Melhor Taxa IPCA+")
                     st.markdown("<hr style='margin: 0.5em 0; border: 0; border-top: 1px dashed #ddd;'>", unsafe_allow_html=True)
 
             if aporte_restante > 0.05:
-                st.info(f"💰 **Sobrou {formata_br(aporte_restante)}**. O algoritmo evitou investir isso para não estourar os limites percentuais configurados.")
+                st.info(f"💰 **Sobrou {formata_br(aporte_restante)}**. Esse valor representa o 'troco' que não foi suficiente para comprar uma cota inteira adicional dos ativos selecionados.")
             else:
-                st.success("✅ Todo o valor foi distribuído de forma otimizada para rebalancear a sua carteira!")
+                st.success("✅ Todo o valor foi distribuído com precisão cirúrgica para rebalancear a sua carteira!")
         else:
-            st.info("Nenhuma sugestão gerada.")
+            st.info("Nenhuma sugestão gerada. Verifique se o valor do aporte é suficiente para comprar os ativos que estão para trás na sua meta.")
