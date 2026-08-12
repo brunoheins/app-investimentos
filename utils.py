@@ -389,7 +389,7 @@ def registrar_deposito(email, data, valor):
         st.error(f"Erro ao salvar depósito: {e}")
         return False
 
-def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio):
+def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, observacao=""):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -400,7 +400,8 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio):
         qtd_str = f"{quantidade:.4f}".replace('.', ',').rstrip('0').rstrip(',')
         preco_str = f"{preco_medio:.4f}".replace('.', ',')
         
-        sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, ""])
+        # Adicionado o campo 'observacao' ao final da lista
+        sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, "", observacao])
         
         st.cache_data.clear() # Limpa a memória após escrever
         return True
