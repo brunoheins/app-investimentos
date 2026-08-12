@@ -32,7 +32,7 @@ def render():
     )
 
     c_aba2.button(
-        "🛒 2. Compra de Ativos", 
+        "🛒 2. Lançamento de Ativos", 
         use_container_width=True, 
         on_click=mudar_aba_lancamento, args=("Compras",),
         type="primary" if st.session_state.aba_lancamento == "Compras" else "secondary"
@@ -59,14 +59,13 @@ def render():
                     st.success(f"Depósito de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
 
     # ==========================================
-    # 2. COMPRA DE ATIVOS 
+    # 2. COMPRA / VENDA / EVENTOS CORPORATIVOS
     # ==========================================
     elif st.session_state.aba_lancamento == "Compras":
-        st.subheader("Registrar Compra")
+        st.subheader("Registrar Movimentação")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
         # --- PAINEL RETRÁTIL COM AS RECOMENDAÇÕES (COM MEMÓRIA) ---
-        # Se houver dicas na memória, o painel já abre expandido automaticamente
         painel_aberto = True if st.session_state.dicas_salvas else False
         
         with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=painel_aberto):
@@ -78,10 +77,8 @@ def render():
             if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
                 with st.spinner("Calculando defasagem..."):
                     compras, resto, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
-                    # Salva o resultado na memória!
                     st.session_state.dicas_salvas = {'compras': compras, 'resto': resto, 'erro': erro}
             
-            # Exibe as dicas se elas existirem na memória
             if st.session_state.dicas_salvas:
                 st.markdown("---")
                 d = st.session_state.dicas_salvas
@@ -95,7 +92,6 @@ def render():
                     if d['resto'] > 0.05:
                         st.caption(f"⚠️ O sistema recomendou segurar **{formata_br(d['resto'])}** na conta para não ultrapassar suas metas.")
                 
-                # Botão para limpar a memória
                 if st.button("🧹 Limpar Dicas"):
                     st.session_state.dicas_salvas = None
                     st.rerun()
@@ -106,6 +102,13 @@ def render():
         cat_ativos_dict = obter_ativos_por_categoria(st.session_state.email)
         categorias_disp = list(cat_ativos_dict.keys())
 
+        # --- INÍCIO DAS ALTERAÇÕES NO FORMULÁRIO DE ATIVOS ---
+        tipo_op = st.radio(
+            "Tipo de Movimentação:",
+            options=["Entrada (Compra / Bonificação 📈)", "Saída (Venda / Grupamento 📉)"],
+            horizontal=True
+        )
+        
         c_cat, c_atv = st.columns(2)
         cat_compra = c_cat.selectbox("1. Escolha a Categoria", categorias_disp)
         
@@ -119,14 +122,28 @@ def render():
             
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
-            data_compra = c1.date_input("Data da Compra", value=datetime.today(), format="DD/MM/YYYY")
-            qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0000, step=1.0, format="%.4f")
-            preco_compra = c3.number_input("Preço Médio Pago (R$)", min_value=0.00, step=1.0, format="%.2f")
+            data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
+            qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
+            preco_compra = c3.number_input("Preço Unitário (R$)", min_value=0.00, step=1.0, format="%.2f")
             
-            if st.button("🛒 Registrar Compra", use_container_width=True, type="primary"):
+            observacao = st.text_input("Anotações (Opcional)", placeholder="Ex: Split 1:10, Bonificação, Realização de Lucro...")
+            
+            st.info("💡 **Dica para Eventos Corporativos:** Se for Bonificação (ganhou cotas) ou Grupamento (perdeu cotas), deixe o Preço Unitário como **R$ 0,00** para não alterar o dinheiro investido.")
+
+            if st.button("💾 Registrar Operação", use_container_width=True, type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
-                if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_compra, preco_compra):
-                    st.success(f"Compra de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
+                
+                # MÁGICA: Se for Saída (Venda/Grupamento), a quantidade enviada ao banco vira negativa
+                qtd_final = qtd_compra if "Entrada" in tipo_op else -qtd_compra
+                
+                # Chama a função passando o novo campo de observação
+                if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_final, preco_compra, observacao):
+                    if preco_compra == 0:
+                        st.success(f"✅ Evento corporativo de {qtd_compra} cotas salvo com sucesso para {ativo_compra}!")
+                    else:
+                        acao = "Compra" if "Entrada" in tipo_op else "Venda"
+                        st.success(f"✅ {acao} de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
+        # --- FIM DAS ALTERAÇÕES NO FORMULÁRIO DE ATIVOS ---
 
     # ==========================================
     # AUDITORIA E EDIÇÃO DE LANÇAMENTOS
@@ -149,10 +166,9 @@ def render():
                 if not meus_depositos.empty:
                     meus_depositos = meus_depositos.drop(columns=['Email'])
                     
-                    # O editor substitui o dataframe estático
                     df_depositos_editado = st.data_editor(
                         meus_depositos, 
-                        num_rows="dynamic", # Permite adicionar e excluir linhas
+                        num_rows="dynamic",
                         use_container_width=True, 
                         hide_index=True,
                         key="editor_depositos"
@@ -170,8 +186,8 @@ def render():
 
         # --- COLUNA DIREITA: COMPRAS (INVESTIMENTOS) ---
         with col_hist2:
-            st.subheader("🛒 Editar Compras")
-            df_compras = ler_planilha("Investimentos") # Atualizado para a aba correta
+            st.subheader("🛒 Editar Movimentações")
+            df_compras = ler_planilha("Investimentos") 
             if not df_compras.empty and 'Email' in df_compras.columns:
                 df_compras['Email'] = df_compras['Email'].astype(str).str.strip().str.lower()
                 minhas_compras = df_compras[df_compras['Email'] == st.session_state.email].copy()
@@ -187,14 +203,12 @@ def render():
                         key="editor_compras"
                     )
                     
-                    if st.button("💾 Salvar Alterações (Compras)", use_container_width=True, type="primary"):
+                    if st.button("💾 Salvar Alterações (Movimentações)", use_container_width=True, type="primary"):
                         with st.spinner("Atualizando carteira..."):
                             if atualizar_historico_usuario(st.session_state.email, "Investimentos", df_compras_editado):
-                                st.success("Compras atualizadas com sucesso!")
+                                st.success("Movimentações atualizadas com sucesso!")
                                 st.rerun()
                 else:
-                    st.info("Nenhuma compra registrada.")
+                    st.info("Nenhuma movimentação registrada.")
             else:
-                st.info("Banco de dados vazio.")
-                st.info("Banco de dados de compras vazio.")
-                
+                st.info("Banco de dados de movimentações vazio.")
