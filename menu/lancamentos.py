@@ -4,7 +4,16 @@ from utils import registrar_deposito, registrar_compra, obter_ativos_por_categor
 from menu.aportes import motor_de_aportes # <-- IMPORTA O CÉREBRO DE APORTES!
 
 def render():
-    st.title("📝 Central de Lançamentos")
+    # --- NOVO: CABEÇALHO COM BOTÃO DE ATUALIZAÇÃO ---
+    col_titulo, col_btn = st.columns([4, 1.2])
+    with col_titulo:
+        st.title("📝 Central de Lançamentos")
+    with col_btn:
+        st.write("") # Espaçamento para alinhar verticalmente
+        if st.button("🔄 Atualizar Dados", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
     st.markdown("Registre a entrada de dinheiro novo na corretora e as suas ordens de compra.")
 
     # Cria a variável na memória do sistema caso ela não exista
@@ -55,6 +64,8 @@ def render():
             if submit:
                 data_str = data_deposito.strftime("%d/%m/%Y")
                 if registrar_deposito(st.session_state.email, data_str, valor_deposito):
+                    # Força o sistema a esquecer a dica antiga para recalcular com o novo dinheiro
+                    st.session_state.dicas_salvas = None 
                     st.success(f"Depósito de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
 
     # ==========================================
@@ -71,11 +82,10 @@ def render():
             st.markdown("Descubra qual é o ativo mais atrasado na sua carteira neste momento:")
             c_val, c_num, c_btn = st.columns([2, 1, 1.2])
             val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=0.00, value=1000.00, step=100.00)
-            num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3, 4, 5]) # <-- ALTERADO PARA 5
+            num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3, 4, 5])
             
             if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
                 with st.spinner("Calculando defasagem..."):
-                    # <-- ALTERADO PARA RECEBER 4 VARIÁVEIS (df_macro)
                     compras, resto, df_macro, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
                     st.session_state.dicas_salvas = {'compras': compras, 'resto': resto, 'erro': erro}
             
@@ -138,6 +148,9 @@ def render():
                 
                 # Chama a função passando o novo campo de observação
                 if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_final, preco_compra, observacao):
+                    # Força o sistema a esquecer a dica antiga para recalcular com o novo balanço após a venda
+                    st.session_state.dicas_salvas = None 
+                    
                     if preco_compra == 0:
                         st.success(f"✅ Evento corporativo de {qtd_compra} cotas salvo com sucesso para {ativo_compra}!")
                     else:
