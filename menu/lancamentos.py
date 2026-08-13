@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
 from utils import registrar_deposito, registrar_compra, obter_ativos_por_categoria, formata_br, ler_planilha, atualizar_historico_usuario
 from menu.aportes import motor_de_aportes # <-- IMPORTA O CÉREBRO DE APORTES!
@@ -72,11 +71,12 @@ def render():
             st.markdown("Descubra qual é o ativo mais atrasado na sua carteira neste momento:")
             c_val, c_num, c_btn = st.columns([2, 1, 1.2])
             val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=0.00, value=1000.00, step=100.00)
-            num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3])
+            num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3, 4, 5]) # <-- ALTERADO PARA 5
             
             if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
                 with st.spinner("Calculando defasagem..."):
-                    compras, resto, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
+                    # <-- ALTERADO PARA RECEBER 4 VARIÁVEIS (df_macro)
+                    compras, resto, df_macro, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
                     st.session_state.dicas_salvas = {'compras': compras, 'resto': resto, 'erro': erro}
             
             if st.session_state.dicas_salvas:
