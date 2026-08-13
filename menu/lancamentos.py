@@ -6,16 +6,7 @@ from utils import registrar_deposito, registrar_compra, obter_ativos_por_categor
 from menu.aportes import motor_de_aportes
 
 def render():
-    col_titulo, col_btn = st.columns([4, 1.2])
-    with col_titulo:
-        st.title("📝 Central de Lançamentos")
-    with col_btn:
-        st.write("") 
-        # Mantemos o botão de atualizar apenas como um atalho de segurança
-        if st.button("🔄 Atualizar Dados", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-
+    st.title("📝 Central de Lançamentos")
     st.markdown("Registre a entrada de dinheiro novo na corretora e as suas ordens de compra.")
 
     if 'dicas_salvas' not in st.session_state:
