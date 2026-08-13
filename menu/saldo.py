@@ -1,11 +1,19 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
 from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 
 def render():
-    st.title("📈 Evolução Real do Patrimônio")
+    # --- CABEÇALHO COM BOTÃO DE ATUALIZAÇÃO ---
+    col_titulo, col_btn = st.columns([4, 1.2])
+    with col_titulo:
+        st.title("📈 Evolução Real do Patrimônio")
+    with col_btn:
+        st.write("") # Espaçamento para alinhar o botão
+        if st.button("🔄 Atualizar Dados", use_container_width=True, key="btn_atualizar_saldo"):
+            st.cache_data.clear() # Força a limpeza da memória global
+            st.rerun()
+
     st.markdown("Compare o **Dinheiro Novo Aportado** (Depósitos) com o **Valor de Mercado**.")
 
     with st.spinner("Construindo linha do tempo da sua carteira..."):
