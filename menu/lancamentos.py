@@ -7,7 +7,7 @@ from menu.aportes import motor_de_aportes
 
 def render():
     st.title("📝 Central de Lançamentos")
-    st.markdown("Registre a entrada de dinheiro novo na corretora e as suas ordens de compra.")
+    st.markdown("Registre a movimentação de dinheiro na corretora e as suas ordens de compra e venda.")
 
     if 'dicas_salvas' not in st.session_state:
         st.session_state.dicas_salvas = None
@@ -21,8 +21,9 @@ def render():
     st.markdown("<br>", unsafe_allow_html=True)
     c_aba1, c_aba2 = st.columns(2)
     
+    # --- BOTÃO 1 ATUALIZADO ---
     c_aba1.button(
-        "💰 1. Depósito de Dinheiro (Aporte)", 
+        "💰 1. Aporte / Saque de Caixa", 
         use_container_width=True, 
         on_click=mudar_aba_lancamento, args=("Depósitos",),
         type="primary" if st.session_state.aba_lancamento == "Depósitos" else "secondary"
@@ -38,25 +39,37 @@ def render():
     st.markdown("---")
 
     # ==========================================
-    # 1. DEPÓSITO DE DINHEIRO
+    # 1. DEPÓSITO / SAQUE DE DINHEIRO
     # ==========================================
     if st.session_state.aba_lancamento == "Depósitos":
-        st.subheader("Registrar novo Aporte")
-        st.info("Lance aqui todo dinheiro 'novo' que saiu do seu bolso (conta corrente) para a corretora.")
+        st.subheader("Registrar Movimentação de Caixa")
+        st.info("Lance aqui o dinheiro que entrou (Aporte) ou que você retirou (Saque) da corretora.")
         
+        # --- NOVO: OPÇÃO DE APORTE OU SAQUE ---
+        tipo_mov_caixa = st.radio(
+            "Tipo de Movimentação:",
+            options=["Aporte (Entrada 💰)", "Saque (Saída 💸)"],
+            horizontal=True
+        )
+
         with st.form("form_deposito", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            data_deposito = col1.date_input("Data do Depósito", value=datetime.today(), format="DD/MM/YYYY")
+            data_deposito = col1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
             valor_deposito = col2.number_input("Valor (R$)", min_value=0.00, value=1000.00, step=100.0, format="%.2f")
             
-            submit = st.form_submit_button("💾 Salvar Depósito", use_container_width=True, type="primary")
+            submit = st.form_submit_button("💾 Salvar Movimentação", use_container_width=True, type="primary")
             if submit:
                 data_str = data_deposito.strftime("%d/%m/%Y")
-                if registrar_deposito(st.session_state.email, data_str, valor_deposito):
+                
+                # MÁGICA: Transforma o valor em negativo se for Saque
+                valor_final = valor_deposito if "Aporte" in tipo_mov_caixa else -valor_deposito
+                
+                if registrar_deposito(st.session_state.email, data_str, valor_final):
                     st.session_state.dicas_salvas = None 
-                    st.success(f"Depósito de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
                     
-                    # MÁGICA: Espera 1.5s para ler a mensagem e recarrega a página automaticamente
+                    acao_texto = "Aporte" if "Aporte" in tipo_mov_caixa else "Saque"
+                    st.success(f"✅ {acao_texto} de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
+                    
                     time.sleep(1.5)
                     st.rerun()
 
@@ -64,7 +77,7 @@ def render():
     # 2. COMPRA / VENDA / EVENTOS CORPORATIVOS
     # ==========================================
     elif st.session_state.aba_lancamento == "Compras":
-        st.subheader("Registrar Movimentação")
+        st.subheader("Registrar Movimentação de Ativos")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
         painel_aberto = True if st.session_state.dicas_salvas else False
@@ -143,7 +156,6 @@ def render():
                         acao = "Compra" if "Entrada" in tipo_op else "Venda"
                         st.success(f"✅ {acao} de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
                     
-                    # MÁGICA: Espera 1.5s para ler a mensagem e recarrega a página automaticamente
                     time.sleep(1.5)
                     st.rerun()
 
@@ -158,7 +170,7 @@ def render():
         col_hist1, col_hist2 = st.columns(2)
         
         with col_hist1:
-            st.subheader("💰 Editar Depósitos")
+            st.subheader("💰 Editar Aportes / Saques")
             df_depositos = ler_planilha("Depositos") 
             if not df_depositos.empty and 'Email' in df_depositos.columns:
                 df_depositos['Email'] = df_depositos['Email'].astype(str).str.strip().str.lower()
@@ -175,14 +187,14 @@ def render():
                         key="editor_depositos"
                     )
                     
-                    if st.button("💾 Salvar Alterações (Depósitos)", use_container_width=True, type="primary"):
-                        with st.spinner("Atualizando depósitos..."):
+                    if st.button("💾 Salvar Alterações de Caixa", use_container_width=True, type="primary"):
+                        with st.spinner("Atualizando caixa..."):
                             if atualizar_historico_usuario(st.session_state.email, "Depositos", df_depositos_editado):
-                                st.success("Depósitos atualizados com sucesso!")
+                                st.success("Caixa atualizado com sucesso!")
                                 time.sleep(1.5)
                                 st.rerun()
                 else:
-                    st.info("Nenhum depósito registrado.")
+                    st.info("Nenhum aporte registrado.")
             else:
                 st.info("Banco de dados vazio.")
 
@@ -204,7 +216,7 @@ def render():
                         key="editor_compras"
                     )
                     
-                    if st.button("💾 Salvar Alterações (Movimentações)", use_container_width=True, type="primary"):
+                    if st.button("💾 Salvar Alterações de Ativos", use_container_width=True, type="primary"):
                         with st.spinner("Atualizando carteira..."):
                             if atualizar_historico_usuario(st.session_state.email, "Investimentos", df_compras_editado):
                                 st.success("Movimentações atualizadas com sucesso!")
