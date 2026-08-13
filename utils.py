@@ -6,6 +6,9 @@ import json
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import requests
+import yfinance as yf
+import re
 
 def extrair_numero_br(valor):
     """Converte strings de planilhas para float lidando com formatos BR e US automaticamente"""
@@ -176,12 +179,6 @@ def obter_cotacoes():
     Busca os preços em tempo real usando Python, ignorando as fórmulas do Google Sheets.
     Usa 'requests' para Tesouro Direto e 'yfinance' para Ações/FIIs/Stocks.
     """
-    import yfinance as yf
-    import requests
-    import streamlit as st
-    import pandas as pd
-    import re
-
     cotacoes = {}
     ativos_buscados = set()
     
@@ -297,9 +294,6 @@ def obter_ativos_por_categoria(email_usuario):
     Lê a aba Ativos_Config para RV e puxa o Tesouro Direto via API para Renda Fixa.
     Oculta categorias que não possuem nenhum ativo configurado.
     """
-    import requests
-    import pandas as pd
-    
     # Inicializa todas as categorias possíveis
     cat_dict = {
         "Renda Fixa": [], "Ações": [], "FIIs": [], 
@@ -366,7 +360,6 @@ def obter_ativos_por_categoria(email_usuario):
         # Se der erro, retorna o dicionário limpo também
         return {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
         
-
 def registrar_deposito(email, data, valor):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -400,8 +393,7 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, obs
         qtd_str = f"{quantidade:.4f}".replace('.', ',').rstrip('0').rstrip(',')
         preco_str = f"{preco_medio:.4f}".replace('.', ',')
         
-        # Adicionado o campo 'observacao' ao final da lista
-        sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, "", observacao])
+        sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, observacao])
         
         st.cache_data.clear() # Limpa a memória após escrever
         return True
@@ -535,8 +527,6 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
         return False, f"Erro ao atualizar perfil: {e}"
 
 def atualizar_historico_usuario(email, nome_aba, df_editado):
-    import pandas as pd
-    import streamlit as st
     try:
         df_full = ler_planilha(nome_aba)
         
@@ -558,11 +548,13 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
                 df_final[col] = ""
         df_final = df_final[cabecalho_original]
         
-        from oauth2client.service_account import ServiceAccountCredentials
-        import gspread
+        # Conexão unificada com o padrão do Google Cloud
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+        chave_gcp = st.secrets["gcp_service_account"]
+        chave_dict = json.loads(chave_gcp) if isinstance(chave_gcp, str) else dict(chave_gcp)
+            
+        creds = Credentials.from_service_account_info(chave_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
         planilha = client.open("App_Investimentos")
@@ -579,22 +571,14 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
         return False
 
 def deletar_registros_usuario(nome_aba, email):
-    import streamlit as st
-    from oauth2client.service_account import ServiceAccountCredentials
-    import gspread
-    import json
-
     try:
         NOME_PLANILHA = "App_Investimentos" 
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
         chave_gcp = st.secrets["gcp_service_account"]
-        if isinstance(chave_gcp, str):
-            chave_dict = json.loads(chave_gcp)
-        else:
-            chave_dict = dict(chave_gcp)
+        chave_dict = json.loads(chave_gcp) if isinstance(chave_gcp, str) else dict(chave_gcp)
             
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(chave_dict, scope)
+        creds = Credentials.from_service_account_info(chave_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
         aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
@@ -628,25 +612,17 @@ def deletar_registros_usuario(nome_aba, email):
         return False, f"Erro ao apagar dados do Google Sheets: {str(e)}"
 
 def inserir_lote_registros(nome_aba, df):
-    import streamlit as st
-    from oauth2client.service_account import ServiceAccountCredentials
-    import gspread
-    import json
-
     if df.empty:
         return True, "Planilha vazia, nada a inserir."
 
     try:
         NOME_PLANILHA = "App_Investimentos"
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
         chave_gcp = st.secrets["gcp_service_account"]
-        if isinstance(chave_gcp, str):
-            chave_dict = json.loads(chave_gcp)
-        else:
-            chave_dict = dict(chave_gcp)
+        chave_dict = json.loads(chave_gcp) if isinstance(chave_gcp, str) else dict(chave_gcp)
             
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(chave_dict, scope)
+        creds = Credentials.from_service_account_info(chave_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
         aba = client.open(NOME_PLANILHA).worksheet(nome_aba)
