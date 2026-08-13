@@ -1,28 +1,26 @@
 import streamlit as st
+import pandas as pd
+import time
 from datetime import datetime
 from utils import registrar_deposito, registrar_compra, obter_ativos_por_categoria, formata_br, ler_planilha, atualizar_historico_usuario
-from menu.aportes import motor_de_aportes # <-- IMPORTA O CÉREBRO DE APORTES!
+from menu.aportes import motor_de_aportes
 
 def render():
-    # --- NOVO: CABEÇALHO COM BOTÃO DE ATUALIZAÇÃO ---
     col_titulo, col_btn = st.columns([4, 1.2])
     with col_titulo:
         st.title("📝 Central de Lançamentos")
     with col_btn:
-        st.write("") # Espaçamento para alinhar verticalmente
+        st.write("") 
+        # Mantemos o botão de atualizar apenas como um atalho de segurança
         if st.button("🔄 Atualizar Dados", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
     st.markdown("Registre a entrada de dinheiro novo na corretora e as suas ordens de compra.")
 
-    # Cria a variável na memória do sistema caso ela não exista
     if 'dicas_salvas' not in st.session_state:
         st.session_state.dicas_salvas = None
 
-    # ==========================================
-    # NOVO SISTEMA DE ABAS (BOTÕES INTELIGENTES)
-    # ==========================================
     if 'aba_lancamento' not in st.session_state:
         st.session_state.aba_lancamento = "Depósitos"
 
@@ -64,9 +62,12 @@ def render():
             if submit:
                 data_str = data_deposito.strftime("%d/%m/%Y")
                 if registrar_deposito(st.session_state.email, data_str, valor_deposito):
-                    # Força o sistema a esquecer a dica antiga para recalcular com o novo dinheiro
                     st.session_state.dicas_salvas = None 
                     st.success(f"Depósito de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
+                    
+                    # MÁGICA: Espera 1.5s para ler a mensagem e recarrega a página automaticamente
+                    time.sleep(1.5)
+                    st.rerun()
 
     # ==========================================
     # 2. COMPRA / VENDA / EVENTOS CORPORATIVOS
@@ -75,7 +76,6 @@ def render():
         st.subheader("Registrar Movimentação")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
-        # --- PAINEL RETRÁTIL COM AS RECOMENDAÇÕES (COM MEMÓRIA) ---
         painel_aberto = True if st.session_state.dicas_salvas else False
         
         with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=painel_aberto):
@@ -107,12 +107,10 @@ def render():
                     st.rerun()
         
         st.markdown("<br>", unsafe_allow_html=True)
-        # -------------------------------------------------------
 
         cat_ativos_dict = obter_ativos_por_categoria(st.session_state.email)
         categorias_disp = list(cat_ativos_dict.keys())
 
-        # --- INÍCIO DAS ALTERAÇÕES NO FORMULÁRIO DE ATIVOS ---
         tipo_op = st.radio(
             "Tipo de Movimentação:",
             options=["Entrada (Compra / Bonificação 📈)", "Saída (Venda / Grupamento 📉)"],
@@ -143,12 +141,9 @@ def render():
             if st.button("💾 Registrar Operação", use_container_width=True, type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
                 
-                # MÁGICA: Se for Saída (Venda/Grupamento), a quantidade enviada ao banco vira negativa
                 qtd_final = qtd_compra if "Entrada" in tipo_op else -qtd_compra
                 
-                # Chama a função passando o novo campo de observação
                 if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_final, preco_compra, observacao):
-                    # Força o sistema a esquecer a dica antiga para recalcular com o novo balanço após a venda
                     st.session_state.dicas_salvas = None 
                     
                     if preco_compra == 0:
@@ -156,7 +151,10 @@ def render():
                     else:
                         acao = "Compra" if "Entrada" in tipo_op else "Venda"
                         st.success(f"✅ {acao} de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
-        # --- FIM DAS ALTERAÇÕES NO FORMULÁRIO DE ATIVOS ---
+                    
+                    # MÁGICA: Espera 1.5s para ler a mensagem e recarrega a página automaticamente
+                    time.sleep(1.5)
+                    st.rerun()
 
     # ==========================================
     # AUDITORIA E EDIÇÃO DE LANÇAMENTOS
@@ -168,7 +166,6 @@ def render():
         
         col_hist1, col_hist2 = st.columns(2)
         
-        # --- COLUNA ESQUERDA: DEPÓSITOS ---
         with col_hist1:
             st.subheader("💰 Editar Depósitos")
             df_depositos = ler_planilha("Depositos") 
@@ -191,13 +188,13 @@ def render():
                         with st.spinner("Atualizando depósitos..."):
                             if atualizar_historico_usuario(st.session_state.email, "Depositos", df_depositos_editado):
                                 st.success("Depósitos atualizados com sucesso!")
+                                time.sleep(1.5)
                                 st.rerun()
                 else:
                     st.info("Nenhum depósito registrado.")
             else:
                 st.info("Banco de dados vazio.")
 
-        # --- COLUNA DIREITA: COMPRAS (INVESTIMENTOS) ---
         with col_hist2:
             st.subheader("🛒 Editar Movimentações")
             df_compras = ler_planilha("Investimentos") 
@@ -220,6 +217,7 @@ def render():
                         with st.spinner("Atualizando carteira..."):
                             if atualizar_historico_usuario(st.session_state.email, "Investimentos", df_compras_editado):
                                 st.success("Movimentações atualizadas com sucesso!")
+                                time.sleep(1.5)
                                 st.rerun()
                 else:
                     st.info("Nenhuma movimentação registrada.")
