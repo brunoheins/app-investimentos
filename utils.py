@@ -218,7 +218,7 @@ def obter_cotacoes():
         if not ativos_buscados:
             return cotacoes
 
-        # 2. INJEÇÃO DO TESOURO DIRETO (CSV OFICIAL COM FALLBACK PARA API)
+        # --- 2. BUSCAR TESOURO DIRETO (CSV OFICIAL COM FALLBACK PARA API) ---
         titulos_tesouro = []
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
@@ -226,37 +226,69 @@ def obter_cotacoes():
             # TENTATIVA 1: CSV Oficial do Tesouro
             url_td = "https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true"
             res_td = requests.get(url_td, headers=headers, timeout=10)
+            
             if res_td.status_code == 200:
+                # O utf-8-sig limpa o BOM (caractere invisível) que corromperia a coluna 'Título'
                 df_td = pd.read_csv(io.StringIO(res_td.content.decode('utf-8-sig')), sep=';')
+                
+                # Garante que os títulos das colunas não tenham espaços laterais acidentais
+                df_td.columns = [str(c).strip() for c in df_td.columns]
+                
                 for _, row in df_td.iterrows():
-                    nome_titulo = str(row.get('Título', '')).strip().upper()
+                    # Usando exatamente o nome das colunas que você validou
+                    nome_cru = str(row.get('Título', ''))
+                    valor_cru = str(row.get('Preço unitário de resgate', '0'))
+                    
+                    # MÁGICA DA COMPARAÇÃO: Limpa espaços duplos e invisíveis (\xa0)
+                    nome_titulo = " ".join(nome_cru.upper().split())
+                    
                     if nome_titulo and nome_titulo != "NAN":
-                        titulos_tesouro.append(nome_titulo)
+                        titulos_tesouro.append({
+                            "nome": nome_titulo,
+                            "valor": extrair_numero_br(valor_cru)
+                        })
             else:
                 raise Exception("Status Code diferente de 200 no CSV")
+                
         except Exception as e1:
+            print(f"Aviso: CSV Oficial do Tesouro falhou ({e1}). Tentando API alternativa...")
             # TENTATIVA 2: API Secundária (Gabriso)
             try:
                 url_td2 = "https://tesouro.gabriso.com/bonds"
                 res_td2 = requests.get(url_td2, headers=headers, timeout=5)
+                
                 if res_td2.status_code == 200:
                     data_td2 = res_td2.json()
                     for bond in data_td2.get("bonds", []):
-                        titulos_tesouro.append(str(bond.get("name", "")).strip().upper())
+                        nome_titulo = " ".join(str(bond.get("name", "")).upper().split())
+                        titulos_tesouro.append({
+                            "nome": nome_titulo,
+                            "valor": float(bond.get("unitary_redemption_value", 0.0))
+                        })
             except Exception as e2:
-                print(f"Aviso: Falha ao carregar Tesouro Direto nos menus: {e2}")
+                print(f"Aviso: API alternativa do Tesouro também falhou: {e2}")
 
-        # APLICA OS FILTROS AOS TÍTULOS ENCONTRADOS
+        # APLICAR OS FILTROS DE REGRA DE NEGÓCIO
         palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
         palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
         
-        for nome in titulos_tesouro:
+        # Cria um mapa limpando também o que veio da sua planilha para a comparação bater 100%
+        mapa_ativos = {" ".join(a.upper().split()): a for a in ativos_buscados}
+        
+        for titulo in titulos_tesouro:
+            nome = titulo["nome"] # Ex: "TESOURO IPCA+ 2029" (Limpíssimo)
+            valor = titulo["valor"]
+            
             tem_permitida = any(p in nome for p in palavras_permitidas)
             tem_proibida = any(p in nome for p in palavras_nao_permitidas)
             
-            if tem_permitida and not tem_proibida:
-                if nome not in cat_dict["Renda Fixa"]:
-                    cat_dict["Renda Fixa"].append(nome)
+            # Se o título bater com a regra OU se for um título que o usuário já possui
+            if (tem_permitida and not tem_proibida) or (nome in mapa_ativos):
+                if nome in mapa_ativos:
+                    # Recupera o nome sujo original para não quebrar as outras tabelas do sistema
+                    nome_original = mapa_ativos[nome]
+                    cotacoes[nome_original] = valor
+                    ativos_buscados.discard(nome_original)
 
         # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE ---
         if ativos_buscados:
