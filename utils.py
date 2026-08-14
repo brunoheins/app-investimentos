@@ -222,29 +222,29 @@ def obter_cotacoes():
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
         try:
-            # TENTATIVA 1: API Primária (Gabriso)
-            # url_td = "https://tesouro.gabriso.com/bonds"
-            # res_td = requests.get(url_td, headers=headers, timeout=5)
+            TENTATIVA 1: API Primária (Gabriso)
+            url_td = "https://tesouro.gabriso.com/bonds"
+            res_td = requests.get(url_td, headers=headers, timeout=5)
             
-            # if res_td.status_code == 200:
-            #     data_td = res_td.json()
-            #     for bond in data_td.get("bonds", []):
-            #         titulos_tesouro.append({
-            #             "nome": str(bond.get("name", "")).strip().upper(),
-            #             "valor": float(bond.get("unitary_redemption_value", 0.0))
-            #         })
-
-            url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
-            res_td2 = requests.get(url_td2, headers=headers, timeout=10)
-            if res_td2.status_code == 200:
-                data_td2 = res_td2.json()
-                # O JSON oficial divide em duas chaves, vamos juntá-las
-                lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
-                for bond in lista_completa:
+            if res_td.status_code == 200:
+                data_td = res_td.json()
+                for bond in data_td.get("bonds", []):
                     titulos_tesouro.append({
-                        "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
-                        "valor": float(bond.get("unitaryRedemptionValue", 0.0))
+                        "nome": str(bond.get("name", "")).strip().upper(),
+                        "valor": float(bond.get("unitary_redemption_value", 0.0))
                     })
+
+            # url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
+            # res_td2 = requests.get(url_td2, headers=headers, timeout=10)
+            # if res_td2.status_code == 200:
+            #     data_td2 = res_td2.json()
+            #     # O JSON oficial divide em duas chaves, vamos juntá-las
+            #     lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
+            #     for bond in lista_completa:
+            #         titulos_tesouro.append({
+            #             "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
+            #             "valor": float(bond.get("unitaryRedemptionValue", 0.0))
+            #         })
                     
             else:
                 raise Exception("Status Code diferente de 200")
@@ -253,28 +253,28 @@ def obter_cotacoes():
             print(f"Aviso: API 1 do Tesouro falhou ({e1}). Tentando API 2...")
             # TENTATIVA 2: API Secundária (Oficial)
             try:
-                # url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
-                # res_td2 = requests.get(url_td2, headers=headers, timeout=10)
-                # if res_td2.status_code == 200:
-                #     data_td2 = res_td2.json()
-                #     # O JSON oficial divide em duas chaves, vamos juntá-las
-                #     lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
-                #     for bond in lista_completa:
-                #         titulos_tesouro.append({
-                #             "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
-                #             "valor": float(bond.get("unitaryRedemptionValue", 0.0))
-                #         })
-
-                url_td = "https://tesouro.gabriso.com/bonds"
-                res_td = requests.get(url_td, headers=headers, timeout=5)
-                
-                if res_td.status_code == 200:
-                    data_td = res_td.json()
-                    for bond in data_td.get("bonds", []):
+                url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
+                res_td2 = requests.get(url_td2, headers=headers, timeout=10)
+                if res_td2.status_code == 200:
+                    data_td2 = res_td2.json()
+                    # O JSON oficial divide em duas chaves, vamos juntá-las
+                    lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
+                    for bond in lista_completa:
                         titulos_tesouro.append({
-                            "nome": str(bond.get("name", "")).strip().upper(),
-                            "valor": float(bond.get("unitary_redemption_value", 0.0))
+                            "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
+                            "valor": float(bond.get("unitaryRedemptionValue", 0.0))
                         })
+
+                # url_td = "https://tesouro.gabriso.com/bonds"
+                # res_td = requests.get(url_td, headers=headers, timeout=5)
+                
+                # if res_td.status_code == 200:
+                #     data_td = res_td.json()
+                #     for bond in data_td.get("bonds", []):
+                #         titulos_tesouro.append({
+                #             "nome": str(bond.get("name", "")).strip().upper(),
+                #             "valor": float(bond.get("unitary_redemption_value", 0.0))
+                #         })
                         
             except Exception as e2:
                 print(f"Aviso: API 2 do Tesouro também falhou: {e2}")
