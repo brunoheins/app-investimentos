@@ -222,7 +222,8 @@ def obter_cotacoes():
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
         try:
-            TENTATIVA 1: API Primária (Gabriso)
+            #TENTATIVA 1: API Primária (Gabriso)
+            
             url_td = "https://tesouro.gabriso.com/bonds"
             res_td = requests.get(url_td, headers=headers, timeout=5)
             
