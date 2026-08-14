@@ -102,15 +102,31 @@ def render():
 
         # --- Tabela de Detalhamento ---
         st.markdown("### 📝 Quais ativos mais te pagaram?")
-        resumo_ativo = df_divs.groupby('Ativo')['Total Recebido'].sum().reset_index().sort_values('Total Recebido', ascending=False)
         
-        # Cria uma visualização estilizada
-        st.dataframe(
-            resumo_ativo.style.format({"Total Recebido": lambda x: formata_br(x)})
-            .bar(subset=['Total Recebido'], color='#00C851', vmin=0),
-            use_container_width=True, 
-            hide_index=True
-        )
+        # Agrupa os dados pegando tanto a soma dos dividendos por cota quanto o total recebido
+        resumo_ativo = df_divs.groupby('Ativo').agg({
+            'Valor por Cota': 'sum',
+            'Total Recebido': 'sum'
+        }).reset_index().sort_values('Total Recebido', ascending=False)
+        
+        # Renomeia a coluna para ficar claro o que ela significa
+        resumo_ativo.rename(columns={'Valor por Cota': 'Total 12 Meses / Cota'}, inplace=True)
+        
+        # Cria colunas para restringir a largura da tabela (deixa ela compacta e alinhada à esquerda)
+        col_tabela, col_vazia = st.columns([1.5, 1])
+        
+        with col_tabela:
+            # Cria a visualização estilizada com as duas colunas financeiras formatadas
+            st.dataframe(
+                resumo_ativo.style.format({
+                    "Total 12 Meses / Cota": lambda x: formata_br(x),
+                    "Total Recebido": lambda x: formata_br(x)
+                })
+                .bar(subset=['Total Recebido'], color='#00C851', vmin=0),
+                use_container_width=True, 
+                hide_index=True
+            )
         
         if ativos_com_erro:
             st.caption(f"⚠️ **Aviso:** Não foi possível encontrar dados de proventos para os seguintes ativos (eles podem ser de Renda Fixa ou não listados no Yahoo): {', '.join(ativos_com_erro)}")
+            
