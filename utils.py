@@ -180,6 +180,10 @@ def obter_cotacoes():
     Busca os preços em tempo real usando Python, ignorando as fórmulas do Google Sheets.
     Usa 'requests' para Tesouro Direto e 'yfinance' para Ações/FIIs/Stocks.
     """
+    import yfinance as yf
+    import requests
+    import re
+    
     cotacoes = {}
     ativos_buscados = set()
     
@@ -197,16 +201,17 @@ def obter_cotacoes():
                     if ativo and ativo not in ["NAN", "NONE", ""]:
                         ativos_buscados.add(ativo)
                         
-                        # Trava de Segurança: Pré-carrega o custo médio para o dinheiro não sumir se a API falhar
+                        # Trava de Segurança: Pré-carrega o custo médio (Fallback)
                         preco_custo = 0.0
                         if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
                             preco_custo = extrair_numero_br(row['PrecoMedio'])
                         elif 'Preco' in row and pd.notnull(row['Preco']):
                             preco_custo = extrair_numero_br(row['Preco'])
+                            
                         if preco_custo > 0 and ativo not in cotacoes:
                             cotacoes[ativo] = preco_custo
 
-            # Lê os ativos que o usuário cadastrou nas metas (mesmo se ainda não comprou)
+            # Lê os ativos cadastrados nas metas (que podem ainda não ter PrecoMedio)
             df_config = ler_planilha("Ativos_Config")
             if not df_config.empty and 'Email' in df_config.columns:
                 meus_configs = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario]
@@ -220,75 +225,58 @@ def obter_cotacoes():
 
         # --- 2. BUSCAR TESOURO DIRETO (CSV OFICIAL COM FALLBACK PARA API) ---
         titulos_tesouro = []
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
         try:
-            # TENTATIVA 1: CSV Oficial do Tesouro
-            url_td = "https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true"
-            res_td = requests.get(url_td, headers=headers, timeout=10)
+            url_csv = "https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true"
+            df_td = pd.read_csv(url_csv, sep=';', encoding='utf-8-sig', storage_options={'User-Agent': 'Mozilla/5.0'})
+            df_td.columns = [str(c).strip().upper() for c in df_td.columns]
             
-            if res_td.status_code == 200:
-                # O utf-8-sig limpa o BOM (caractere invisível) que corromperia a coluna 'Título'
-                df_td = pd.read_csv(io.StringIO(res_td.content.decode('utf-8-sig')), sep=';')
+            col_titulo = next((col for col in df_td.columns if 'TÍTULO' in col), df_td.columns[0])
+            col_preco = next((col for col in df_td.columns if 'RESGATE' in col or 'PREÇO' in col), df_td.columns[2])
+            
+            for _, row in df_td.iterrows():
+                nome_cru = str(row[col_titulo])
+                valor_cru = str(row[col_preco])
+                nome_titulo_limpo = " ".join(nome_cru.upper().split())
                 
-                # Garante que os títulos das colunas não tenham espaços laterais acidentais
-                df_td.columns = [str(c).strip() for c in df_td.columns]
-                
-                for _, row in df_td.iterrows():
-                    # Usando exatamente o nome das colunas que você validou
-                    nome_cru = str(row.get('Título', ''))
-                    valor_cru = str(row.get('Preço unitário de resgate', '0'))
-                    
-                    # MÁGICA DA COMPARAÇÃO: Limpa espaços duplos e invisíveis (\xa0)
-                    nome_titulo = " ".join(nome_cru.upper().split())
-                    
-                    if nome_titulo and nome_titulo != "NAN":
-                        titulos_tesouro.append({
-                            "nome": nome_titulo,
-                            "valor": extrair_numero_br(valor_cru)
-                        })
-            else:
-                raise Exception("Status Code diferente de 200 no CSV")
-                
+                if nome_titulo_limpo and nome_titulo_limpo != "NAN":
+                    titulos_tesouro.append({
+                        "nome": nome_titulo_limpo,
+                        "valor": extrair_numero_br(valor_cru)
+                    })
         except Exception as e1:
-            print(f"Aviso: CSV Oficial do Tesouro falhou ({e1}). Tentando API alternativa...")
-            # TENTATIVA 2: API Secundária (Gabriso)
             try:
+                headers = {"User-Agent": "Mozilla/5.0"}
                 url_td2 = "https://tesouro.gabriso.com/bonds"
                 res_td2 = requests.get(url_td2, headers=headers, timeout=5)
                 
                 if res_td2.status_code == 200:
                     data_td2 = res_td2.json()
                     for bond in data_td2.get("bonds", []):
-                        nome_titulo = " ".join(str(bond.get("name", "")).upper().split())
+                        nome_titulo_limpo = " ".join(str(bond.get("name", "")).upper().split())
                         titulos_tesouro.append({
-                            "nome": nome_titulo,
+                            "nome": nome_titulo_limpo,
                             "valor": float(bond.get("unitary_redemption_value", 0.0))
                         })
             except Exception as e2:
-                print(f"Aviso: API alternativa do Tesouro também falhou: {e2}")
+                print(f"Aviso: Falha ao carregar Tesouro: {e2}")
 
-        # APLICAR OS FILTROS DE REGRA DE NEGÓCIO
-        palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
-        palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
-        
-        # Cria um mapa limpando também o que veio da sua planilha para a comparação bater 100%
+        # APLICAR COTAÇÕES DO TESOURO SOBRE A TRAVA DE SEGURANÇA
         mapa_ativos = {" ".join(a.upper().split()): a for a in ativos_buscados}
+        ativos_ja_encontrados = set()
         
         for titulo in titulos_tesouro:
-            nome = titulo["nome"] # Ex: "TESOURO IPCA+ 2029" (Limpíssimo)
+            nome = titulo["nome"]
             valor = titulo["valor"]
             
-            tem_permitida = any(p in nome for p in palavras_permitidas)
-            tem_proibida = any(p in nome for p in palavras_nao_permitidas)
-            
-            # Se o título bater com a regra OU se for um título que o usuário já possui
-            if (tem_permitida and not tem_proibida) or (nome in mapa_ativos):
-                if nome in mapa_ativos:
-                    # Recupera o nome sujo original para não quebrar as outras tabelas do sistema
-                    nome_original = mapa_ativos[nome]
-                    cotacoes[nome_original] = valor
-                    ativos_buscados.discard(nome_original)
+            if nome in mapa_ativos:
+                nome_original = mapa_ativos[nome]
+                # AQUI É A MÁGICA: Ele SOBRESCREVE o preço médio de segurança pelo preço Real Oficial!
+                cotacoes[nome_original] = valor
+                ativos_ja_encontrados.add(nome_original)
+                
+        # Remove os ativos encontrados da fila de busca para não mandar o Tesouro pro Yahoo Finance
+        ativos_buscados = ativos_buscados - ativos_ja_encontrados
 
         # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE ---
         if ativos_buscados:
@@ -297,26 +285,21 @@ def obter_cotacoes():
             
             for ativo in ativos_buscados:
                 ticker = ativo
-                # Mágica de Reconhecimento: Se o ativo tem um número no final (ex: ITUB4, MXRF11) 
-                # e não tem ponto na string, é um ativo brasileiro. Adicionamos o ".SA" nativo do Yahoo.
                 if "." not in ticker and re.search(r'\d+$', ticker):
                     ticker = f"{ticker}.SA"
                 
                 tickers_yf.append(ticker)
-                mapa_tickers[ticker] = ativo # Guarda a referência para devolver o nome limpo
+                mapa_tickers[ticker] = ativo 
 
             try:
-                # Faz o download em lote de todos os preços de uma vez só (Super Rápido!)
                 dados_yf = yf.download(tickers_yf, period="1d", progress=False)
                 
                 if not dados_yf.empty and 'Close' in dados_yf:
                     if len(tickers_yf) == 1:
-                        # Quando é apenas 1 ticker, o DataFrame tem um formato simples
                         preco = float(dados_yf['Close'].iloc[-1])
                         if pd.notna(preco):
                             cotacoes[mapa_tickers[tickers_yf[0]]] = preco
                     else:
-                        # Multi-tickers retorna colunas aninhadas
                         for ticker in tickers_yf:
                             try:
                                 preco = float(dados_yf['Close'][ticker].iloc[-1])
