@@ -217,31 +217,83 @@ def obter_cotacoes():
         if not ativos_buscados:
             return cotacoes
 
-        # --- 2. BUSCAR TESOURO DIRETO (API) ---
+        # --- 2. BUSCAR TESOURO DIRETO (API COM FALLBACK) ---
+        titulos_tesouro = []
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        
         try:
-            url_td = "https://tesouro.gabriso.com/bonds"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            res_td = requests.get(url_td, headers=headers, timeout=10)
+            # TENTATIVA 1: API Primária (Gabriso)
+            # url_td = "https://tesouro.gabriso.com/bonds"
+            # res_td = requests.get(url_td, headers=headers, timeout=5)
             
-            if res_td.status_code == 200:
-                data_td = res_td.json()
-                palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
-                palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
+            # if res_td.status_code == 200:
+            #     data_td = res_td.json()
+            #     for bond in data_td.get("bonds", []):
+            #         titulos_tesouro.append({
+            #             "nome": str(bond.get("name", "")).strip().upper(),
+            #             "valor": float(bond.get("unitary_redemption_value", 0.0))
+            #         })
+
+            url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
+            res_td2 = requests.get(url_td2, headers=headers, timeout=10)
+            if res_td2.status_code == 200:
+                data_td2 = res_td2.json()
+                # O JSON oficial divide em duas chaves, vamos juntá-las
+                lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
+                for bond in lista_completa:
+                    titulos_tesouro.append({
+                        "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
+                        "valor": float(bond.get("unitaryRedemptionValue", 0.0))
+                    })
+                    
+            else:
+                raise Exception("Status Code diferente de 200")
                 
-                for bond in data_td.get("bonds", []):
-                    nome = str(bond.get("name", "")).strip().upper()
-                    valor = float(bond.get("unitary_redemption_value", 0.0))
-                    
-                    tem_permitida = any(p in nome for p in palavras_permitidas)
-                    tem_proibida = any(p in nome for p in palavras_nao_permitidas)
-                    
-                    # Se o título bater com a regra OU se for um título que o usuário já possui na carteira
-                    if (tem_permitida and not tem_proibida) or (nome in ativos_buscados):
-                        if nome in ativos_buscados:
-                            cotacoes[nome] = valor
-                            ativos_buscados.remove(nome) # Tira da lista para não mandar pro Yahoo Finance
-        except Exception as e:
-            print(f"Aviso: Falha na API do Tesouro Direto: {e}")
+        except Exception as e1:
+            print(f"Aviso: API 1 do Tesouro falhou ({e1}). Tentando API 2...")
+            # TENTATIVA 2: API Secundária (Oficial)
+            try:
+                # url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
+                # res_td2 = requests.get(url_td2, headers=headers, timeout=10)
+                # if res_td2.status_code == 200:
+                #     data_td2 = res_td2.json()
+                #     # O JSON oficial divide em duas chaves, vamos juntá-las
+                #     lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
+                #     for bond in lista_completa:
+                #         titulos_tesouro.append({
+                #             "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
+                #             "valor": float(bond.get("unitaryRedemptionValue", 0.0))
+                #         })
+
+                url_td = "https://tesouro.gabriso.com/bonds"
+                res_td = requests.get(url_td, headers=headers, timeout=5)
+                
+                if res_td.status_code == 200:
+                    data_td = res_td.json()
+                    for bond in data_td.get("bonds", []):
+                        titulos_tesouro.append({
+                            "nome": str(bond.get("name", "")).strip().upper(),
+                            "valor": float(bond.get("unitary_redemption_value", 0.0))
+                        })
+                        
+            except Exception as e2:
+                print(f"Aviso: API 2 do Tesouro também falhou: {e2}")
+
+        # APLICAR OS FILTROS DE REGRA DE NEGÓCIO
+        palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
+        palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
+        
+        for titulo in titulos_tesouro:
+            nome = titulo["nome"]
+            valor = titulo["valor"]
+            
+            tem_permitida = any(p in nome for p in palavras_permitidas)
+            tem_proibida = any(p in nome for p in palavras_nao_permitidas)
+            
+            if (tem_permitida and not tem_proibida) or (nome in ativos_buscados):
+                if nome in ativos_buscados:
+                    cotacoes[nome] = valor
+                    ativos_buscados.remove(nome)
 
         # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE ---
         if ativos_buscados:
