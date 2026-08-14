@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 import requests
 import yfinance as yf
 import re
+import io
 
 def extrair_numero_br(valor):
     """Converte strings de planilhas para float lidando com formatos BR e US automaticamente"""
@@ -217,84 +218,45 @@ def obter_cotacoes():
         if not ativos_buscados:
             return cotacoes
 
-        # --- 2. BUSCAR TESOURO DIRETO (API COM FALLBACK) ---
+        # 2. INJEÇÃO DO TESOURO DIRETO (CSV OFICIAL COM FALLBACK PARA API)
         titulos_tesouro = []
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         
         try:
-            #TENTATIVA 1: API Primária (Gabriso)
-            
-            url_td = "https://tesouro.gabriso.com/bonds"
-            res_td = requests.get(url_td, headers=headers, timeout=5)
-            
+            # TENTATIVA 1: CSV Oficial do Tesouro
+            url_td = "https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true"
+            res_td = requests.get(url_td, headers=headers, timeout=10)
             if res_td.status_code == 200:
-                data_td = res_td.json()
-                for bond in data_td.get("bonds", []):
-                    titulos_tesouro.append({
-                        "nome": str(bond.get("name", "")).strip().upper(),
-                        "valor": float(bond.get("unitary_redemption_value", 0.0))
-                    })
-
-            # url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
-            # res_td2 = requests.get(url_td2, headers=headers, timeout=10)
-            # if res_td2.status_code == 200:
-            #     data_td2 = res_td2.json()
-            #     # O JSON oficial divide em duas chaves, vamos juntá-las
-            #     lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
-            #     for bond in lista_completa:
-            #         titulos_tesouro.append({
-            #             "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
-            #             "valor": float(bond.get("unitaryRedemptionValue", 0.0))
-            #         })
-                    
+                df_td = pd.read_csv(io.StringIO(res_td.content.decode('utf-8-sig')), sep=';')
+                for _, row in df_td.iterrows():
+                    nome_titulo = str(row.get('Título', '')).strip().upper()
+                    if nome_titulo and nome_titulo != "NAN":
+                        titulos_tesouro.append(nome_titulo)
             else:
-                raise Exception("Status Code diferente de 200")
-                
+                raise Exception("Status Code diferente de 200 no CSV")
         except Exception as e1:
-            print(f"Aviso: API 1 do Tesouro falhou ({e1}). Tentando API 2...")
-            # TENTATIVA 2: API Secundária (Oficial)
+            # TENTATIVA 2: API Secundária (Gabriso)
             try:
-                url_td2 = "https://www.tesourodireto.com.br/o/rentabilidade/investir"
-                res_td2 = requests.get(url_td2, headers=headers, timeout=10)
+                url_td2 = "https://tesouro.gabriso.com/bonds"
+                res_td2 = requests.get(url_td2, headers=headers, timeout=5)
                 if res_td2.status_code == 200:
                     data_td2 = res_td2.json()
-                    # O JSON oficial divide em duas chaves, vamos juntá-las
-                    lista_completa = data_td2.get("TesouroLegado", []) + data_td2.get("Tesouro24x7", [])
-                    for bond in lista_completa:
-                        titulos_tesouro.append({
-                            "nome": str(bond.get("treasuryBondName", "")).strip().upper(),
-                            "valor": float(bond.get("unitaryRedemptionValue", 0.0))
-                        })
-
-                # url_td = "https://tesouro.gabriso.com/bonds"
-                # res_td = requests.get(url_td, headers=headers, timeout=5)
-                
-                # if res_td.status_code == 200:
-                #     data_td = res_td.json()
-                #     for bond in data_td.get("bonds", []):
-                #         titulos_tesouro.append({
-                #             "nome": str(bond.get("name", "")).strip().upper(),
-                #             "valor": float(bond.get("unitary_redemption_value", 0.0))
-                #         })
-                        
+                    for bond in data_td2.get("bonds", []):
+                        titulos_tesouro.append(str(bond.get("name", "")).strip().upper())
             except Exception as e2:
-                print(f"Aviso: API 2 do Tesouro também falhou: {e2}")
+                print(f"Aviso: Falha ao carregar Tesouro Direto nos menus: {e2}")
 
-        # APLICAR OS FILTROS DE REGRA DE NEGÓCIO
+        # APLICA OS FILTROS AOS TÍTULOS ENCONTRADOS
         palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
         palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
         
-        for titulo in titulos_tesouro:
-            nome = titulo["nome"]
-            valor = titulo["valor"]
-            
+        for nome in titulos_tesouro:
             tem_permitida = any(p in nome for p in palavras_permitidas)
             tem_proibida = any(p in nome for p in palavras_nao_permitidas)
             
-            if (tem_permitida and not tem_proibida) or (nome in ativos_buscados):
-                if nome in ativos_buscados:
-                    cotacoes[nome] = valor
-                    ativos_buscados.remove(nome)
+            if tem_permitida and not tem_proibida:
+                if nome not in cat_dict["Renda Fixa"]:
+                    cat_dict["Renda Fixa"].append(nome)
 
         # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE ---
         if ativos_buscados:
