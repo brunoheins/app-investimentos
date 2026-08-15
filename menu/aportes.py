@@ -13,7 +13,7 @@ def normalizar_categoria(cat_str):
     if c in ["ETFS", "ETF"]: return "ETFs"
     return str(cat_str).strip()
 
-def motor_de_aportes(email, valor_aporte, num_compras):
+def motor_de_aportes(email, valor_aporte, dividir=True):
     """Cérebro matemático: Calcula as recomendações de compra otimizando trocos e lotes reais."""
     df_conf = ler_planilha("Configuracao")
     df_ativos_conf = ler_planilha("Ativos_Config")
@@ -120,92 +120,179 @@ def motor_de_aportes(email, valor_aporte, num_compras):
         axis=1
     )
 
-    # --- 4. ALOCAÇÃO COM OTIMIZAÇÃO DE TROCO ---
+    # --- 4. ALOCAÇÃO INTELIGENTE (DIVIDIR OU INTEGRAL) ---
+    compras_dict = {}
     aporte_restante = valor_aporte
-    compras = []
-    ativos_comprados = [] 
-    compras_realizadas = 0
+    df_disp = df_calc[df_calc['Is_Target'] == True].copy()
+    
+    # Prepara a estrutura local para rastrear as compras
+    for idx, row in df_disp.iterrows():
+        ativo = row['Ativo']
+        compras_dict[ativo] = {
+            'Categoria': row['Categoria'],
+            'Ativo': ativo,
+            'Valor': 0.0,
+            'PrecoRef': row['PrecoAtual'],
+            'Qtd': 0.0,
+            'Is_RV': row['Categoria'] in ["Ações", "FIIs", "Stocks", "REITs", "ETFs"],
+            'Is_BR': row['Categoria'] in ["Ações", "FIIs"],
+            'Qtd_Alvo': row['ValorAlvo'] / row['PrecoAtual'] if row['PrecoAtual'] > 0 else 0,
+            'Qtd_Atual': row['TotalAtual_Original'] / row['PrecoAtual'] if row['PrecoAtual'] > 0 else 0,
+            'Falta_Comprar': row['Falta_Comprar']
+        }
 
-    # Usa um while para garantir que tentará buscar opções até o limite de compras ou o dinheiro acabar
-    tentativas = 0 
-    while compras_realizadas < num_compras and aporte_restante > 0.01 and tentativas < 20:
-        tentativas += 1
-        
-        cat_gaps = df_calc.groupby('Categoria')['Falta_Comprar'].sum().sort_values(ascending=False)
-        if cat_gaps.empty: break
-        top_cat = cat_gaps.index[0]
-        max_cat_gap = cat_gaps.iloc[0]
-
-        df_disponivel = df_calc[(df_calc['Is_Target'] == True) & (~df_calc['Ativo'].isin(ativos_comprados))]
-        if df_disponivel.empty: break
-
-        if max_cat_gap <= 0.01:
-            df_disponivel = df_disponivel.sort_values(by='Falta_Comprar', ascending=False)
-            top_ativo_row = df_disponivel.iloc[0]
-        else:
-            ativos_top_cat = df_disponivel[df_disponivel['Categoria'] == top_cat]
-            if ativos_top_cat.empty:
-                df_disponivel = df_disponivel.sort_values(by='Falta_Comprar', ascending=False)
-                top_ativo_row = df_disponivel.iloc[0]
-            else:
-                ativos_top_cat = ativos_top_cat.sort_values(by='Falta_Comprar', ascending=False)
-                top_ativo_row = ativos_top_cat.iloc[0]
-
-        falta_ativo = top_ativo_row['Falta_Comprar']
-        compras_restantes = num_compras - compras_realizadas
-        valor_parcela = aporte_restante / compras_restantes
-
-        valor_teorico_alocado = min(valor_parcela, falta_ativo) if falta_ativo > 0 else valor_parcela 
-
-        idx = top_ativo_row.name
-        top_ativo = top_ativo_row['Ativo']
-        preco_atual = top_ativo_row['PrecoAtual']
-        categoria = top_ativo_row['Categoria']
-
-        is_rv = categoria in ["Ações", "FIIs", "Stocks", "REITs", "ETFs"]
-        is_br = categoria in ["Ações", "FIIs"]
-        
-        valor_real_gasto = valor_teorico_alocado
-        qtd_sugerida_str = "-"
-        qtd_faltante_str = "-"
-
-        if is_rv and preco_atual > 0:
-            qtd_bruta = valor_teorico_alocado / preco_atual
-            qtd_alvo = top_ativo_row['ValorAlvo'] / preco_atual
-            qtd_atual = top_ativo_row['TotalAtual_Original'] / preco_atual
-            qtd_faltante_total = max(0, qtd_alvo - qtd_atual)
+    if not dividir:
+        # Aporte Integral: Aloca 100% no ativo mais defasado da carteira
+        df_disp = df_disp.sort_values(by='Falta_Comprar', ascending=False)
+        if not df_disp.empty:
+            row = df_disp.iloc[0]
+            ativo = row['Ativo']
+            d = compras_dict[ativo]
+            preco = d['PrecoRef']
             
-            if is_br:
-                qtd_sugerida = int(qtd_bruta)
-                if qtd_sugerida == 0:
-                    # Filtro de Ativo Caro: O dinheiro da parcela não compra nem 1 cota. 
-                    # Marca como verificado, não gasta o dinheiro e vai pro próximo.
-                    ativos_comprados.append(top_ativo)
-                    df_calc.loc[idx, 'Falta_Comprar'] = -999999 
-                    continue
-                    
-                valor_real_gasto = qtd_sugerida * preco_atual
-                qtd_sugerida_str = f"{qtd_sugerida} un"
-                qtd_faltante_str = f"{int(qtd_faltante_total)} un"
+            if d['Is_RV'] and preco > 0:
+                if d['Is_BR']:
+                    qtd = int(aporte_restante / preco)
+                    gasto = qtd * preco
+                else:
+                    qtd = aporte_restante / preco
+                    gasto = aporte_restante
+            elif not d['Is_RV']:
+                qtd = 0
+                gasto = aporte_restante
             else:
-                valor_real_gasto = valor_teorico_alocado
-                qtd_sugerida = qtd_bruta
-                qtd_sugerida_str = f"{qtd_sugerida:.4f} un".replace('.', ',')
-                qtd_faltante_str = f"{qtd_faltante_total:.4f} un".replace('.', ',')
+                gasto = 0
+                qtd = 0
+                
+            d['Valor'] += gasto
+            d['Qtd'] += qtd
+            d['Falta_Comprar'] -= gasto
+            aporte_restante -= gasto
 
-        compras.append({
-            'Ordem': compras_realizadas + 1, 'Categoria': categoria, 'Ativo': top_ativo, 'Valor': valor_real_gasto,
-            'PrecoRef': preco_atual, 'Qtd_Sugerida': qtd_sugerida_str,
-            'Qtd_Faltante': qtd_faltante_str, 'Is_RV': is_rv
-        })
-
-        df_calc.loc[idx, 'Falta_Comprar'] -= valor_real_gasto
-        df_calc.loc[idx, 'TotalAtual'] += valor_real_gasto
-        ativos_comprados.append(top_ativo)
+    else:
+        # Aporte Dividido: Passo 1 - Alocação Proporcional Mágica
+        df_gap = df_disp[df_disp['Falta_Comprar'] > 0]
+        total_gap = df_gap['Falta_Comprar'].sum()
         
-        # Mágica do Troco: Subtrai apenas o que gastou de verdade. O troco fica no bolo.
-        aporte_restante -= valor_real_gasto
-        compras_realizadas += 1
+        if total_gap > 0:
+            for idx, row in df_gap.iterrows():
+                ativo = row['Ativo']
+                d = compras_dict[ativo]
+                preco = d['PrecoRef']
+                fator = d['Falta_Comprar'] / total_gap
+                alocacao_teorica = valor_aporte * fator
+                
+                if d['Is_RV'] and preco > 0:
+                    if d['Is_BR']:
+                        qtd = int(alocacao_teorica / preco) # Arredonda pra baixo (cotas cheias)
+                        gasto = qtd * preco
+                    else:
+                        qtd = alocacao_teorica / preco
+                        gasto = alocacao_teorica
+                elif not d['Is_RV']:
+                    qtd = 0
+                    gasto = alocacao_teorica
+                else:
+                    gasto = 0
+                    qtd = 0
+                    
+                d['Valor'] += gasto
+                d['Qtd'] += qtd
+                d['Falta_Comprar'] -= gasto
+                aporte_restante -= gasto
+        else:
+            # Fallback: Se tudo já está na meta, distribui pelos pesos globais normais
+            total_peso = df_disp['PesoGlobal'].sum()
+            for idx, row in df_disp.iterrows():
+                ativo = row['Ativo']
+                d = compras_dict[ativo]
+                preco = d['PrecoRef']
+                fator = row['PesoGlobal'] / total_peso if total_peso > 0 else 1/len(df_disp)
+                alocacao_teorica = valor_aporte * fator
+                
+                if d['Is_RV'] and preco > 0:
+                    if d['Is_BR']:
+                        qtd = int(alocacao_teorica / preco)
+                        gasto = qtd * preco
+                    else:
+                        qtd = alocacao_teorica / preco
+                        gasto = alocacao_teorica
+                elif not d['Is_RV']:
+                    qtd = 0
+                    gasto = alocacao_teorica
+                else:
+                    gasto = 0
+                    qtd = 0
+                    
+                d['Valor'] += gasto
+                d['Qtd'] += qtd
+                d['Falta_Comprar'] -= gasto
+                aporte_restante -= gasto
+
+        # Aporte Dividido: Passo 2 - Otimizador de Trocos (Greedy)
+        # Absorve todo o dinheiro que sobrou por causa de cotas arredondadas no Passo 1
+        comprou_no_loop = True
+        while aporte_restante > 0.01 and comprou_no_loop:
+            comprou_no_loop = False
+            # Ordena e joga o troco em quem está com o maior gap no momento
+            ativos_ordenados = sorted(compras_dict.values(), key=lambda x: x['Falta_Comprar'], reverse=True)
+            
+            for d in ativos_ordenados:
+                preco = d['PrecoRef']
+                if d['Is_RV']:
+                    if preco <= 0: continue
+                    if d['Is_BR']:
+                        if aporte_restante >= preco:
+                            d['Valor'] += preco
+                            d['Qtd'] += 1
+                            d['Falta_Comprar'] -= preco
+                            aporte_restante -= preco
+                            comprou_no_loop = True
+                            break 
+                    else:
+                        # Ativos exteriores e ETFs podem engolir o troco fracionário todo
+                        d['Valor'] += aporte_restante
+                        d['Qtd'] += aporte_restante / preco
+                        d['Falta_Comprar'] -= aporte_restante
+                        aporte_restante = 0
+                        comprou_no_loop = True
+                        break
+                else:
+                    # Renda Fixa engole trocos perfeitamente
+                    d['Valor'] += aporte_restante
+                    d['Falta_Comprar'] -= aporte_restante
+                    aporte_restante = 0
+                    comprou_no_loop = True
+                    break
+
+    # --- 5. MONTAGEM FINAL DO EXTRATO DE COMPRAS ---
+    compras = []
+    ordem = 1
+    # Organiza do maior montante em R$ para o menor
+    for d in sorted(compras_dict.values(), key=lambda x: x['Valor'], reverse=True):
+        if d['Valor'] > 0:
+            qtd_sugerida_str = "-"
+            qtd_faltante_str = "-"
+            if d['Is_RV']:
+                qtd_faltante = max(0, d['Qtd_Alvo'] - d['Qtd_Atual'])
+                if d['Is_BR']:
+                    qtd_sugerida_str = f"{int(d['Qtd'])} un"
+                    qtd_faltante_str = f"{int(qtd_faltante)} un"
+                else:
+                    qtd_sugerida_str = f"{d['Qtd']:.4f} un".replace('.', ',')
+                    qtd_faltante_str = f"{qtd_faltante:.4f} un".replace('.', ',')
+                    
+            compras.append({
+                'Ordem': ordem,
+                'Categoria': d['Categoria'],
+                'Ativo': d['Ativo'],
+                'Valor': d['Valor'],
+                'PrecoRef': d['PrecoRef'],
+                'Qtd_Sugerida': qtd_sugerida_str,
+                'Qtd_Faltante': qtd_faltante_str,
+                'Is_RV': d['Is_RV']
+            })
+            ordem += 1
 
     return compras, aporte_restante, df_resumo_macro, None
 
