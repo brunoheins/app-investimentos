@@ -306,7 +306,8 @@ def render():
     with col1:
         valor_aporte = st.number_input("💸 Valor do Aporte (R$)", min_value=0.0, value=1000.0, step=100.0)
     with col2:
-        num_compras = st.pills("Dividir em até quantas compras?", options=[1, 2, 3, 4, 5], default=1)
+        opcao_est = st.radio("Estratégia do Aporte:", ["Dividir pelo Objetivo", "Aporte Integral"], horizontal=True)
+        dividir = "Dividir" in opcao_est
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -316,8 +317,8 @@ def render():
             return
 
         with st.spinner("Analisando o balanço real da sua carteira..."):
-            compras, aporte_restante, df_macro, erro = motor_de_aportes(st.session_state.email, valor_aporte, num_compras)
-            
+            compras, aporte_restante, df_macro, erro = motor_de_aportes(st.session_state.email, valor_aporte, dividir)
+
             if erro:
                 st.error(f"⚠️ {erro}")
                 return
