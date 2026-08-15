@@ -84,13 +84,16 @@ def render():
         
         with st.expander("💡 Precisa de ajuda? Consultar Guia de Aportes Rápido", expanded=painel_aberto):
             st.markdown("Descubra qual é o ativo mais atrasado na sua carteira neste momento:")
-            c_val, c_num, c_btn = st.columns([2, 1, 1.2])
+            c_val, c_num, c_btn = st.columns([2, 2, 1.2])
             val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=0.00, value=1000.00, step=100.00)
-            num_simul = c_num.selectbox("Fatiar em quantas compras?", [1, 2, 3, 4, 5])
+            
+            # --- NOVO: Seletor de Divisão Direto ---
+            opcao_est = c_num.selectbox("Estratégia do Aporte:", ["Dividir pelo Objetivo", "Aporte Integral (1 Ativo)"])
+            dividir = "Dividir" in opcao_est
             
             if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
                 with st.spinner("Calculando defasagem..."):
-                    compras, resto, df_macro, erro = motor_de_aportes(st.session_state.email, val_simul, num_simul)
+                    compras, resto, df_macro, erro = motor_de_aportes(st.session_state.email, val_simul, dividir)
                     st.session_state.dicas_salvas = {'compras': compras, 'resto': resto, 'erro': erro}
             
             if st.session_state.dicas_salvas:
