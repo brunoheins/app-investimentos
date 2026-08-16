@@ -1,17 +1,100 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import requests
+import yfinance as yf
 from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 
+# ==========================================
+# CÉREBRO DE BENCHMARKS (API BCB + YFINANCE)
+# ==========================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def obter_historico_benchmarks(mes_inicial, mes_final):
+    """Busca o CDI, IPCA e IBOVESPA do mês inicial até o mês final, de forma segura e com fallback"""
+    # Prepara as datas no padrão que o Banco Central exige (dd/mm/yyyy)
+    dt_ini_bcb = f"01/{mes_inicial[-2:]}/{mes_inicial[:4]}"
+    periodo_fim = pd.to_datetime(mes_final + '-01') + pd.offsets.MonthEnd(1)
+    dt_fim_bcb = periodo_fim.strftime('%d/%m/%Y')
+    
+    df_bench = pd.DataFrame({'MesAno': pd.date_range(start=f"{mes_inicial}-01", end=periodo_fim, freq='MS').strftime('%Y-%m')})
+    df_bench['CDI'] = 0.0
+    df_bench['IPCA'] = 0.0
+    df_bench['IBOV'] = 0.0
+    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    
+    # 1. CDI (API Banco Central do Brasil - Série 4391: Acumulado Mensal)
+    try:
+        url_cdi = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.4391/dados?formato=json&dataInicial={dt_ini_bcb}&dataFinal={dt_fim_bcb}"
+        res_cdi = requests.get(url_cdi, headers=headers, timeout=5)
+        if res_cdi.status_code == 200:
+            df_cdi_raw = pd.DataFrame(res_cdi.json())
+            df_cdi_raw['MesAno'] = pd.to_datetime(df_cdi_raw['data'], format='%d/%m/%Y').dt.strftime('%Y-%m')
+            df_cdi_raw['valor'] = df_cdi_raw['valor'].astype(float) / 100.0 # Transforma percentual em decimal
+            for _, row in df_cdi_raw.iterrows():
+                df_bench.loc[df_bench['MesAno'] == row['MesAno'], 'CDI'] = row['valor']
+    except Exception as e:
+        print(f"Erro ao buscar CDI: {e}")
+
+    # 2. IPCA (API Banco Central do Brasil - Série 433: Inflação Mensal)
+    try:
+        url_ipca = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados?formato=json&dataInicial={dt_ini_bcb}&dataFinal={dt_fim_bcb}"
+        res_ipca = requests.get(url_ipca, headers=headers, timeout=5)
+        if res_ipca.status_code == 200:
+            df_ipca_raw = pd.DataFrame(res_ipca.json())
+            df_ipca_raw['MesAno'] = pd.to_datetime(df_ipca_raw['data'], format='%d/%m/%Y').dt.strftime('%Y-%m')
+            df_ipca_raw['valor'] = df_ipca_raw['valor'].astype(float) / 100.0
+            for _, row in df_ipca_raw.iterrows():
+                df_bench.loc[df_bench['MesAno'] == row['MesAno'], 'IPCA'] = row['valor']
+    except Exception as e:
+        print(f"Erro ao buscar IPCA: {e}")
+
+    # 3. IBOVESPA (Yahoo Finance)
+    try:
+        # Abre margem de 1 mês antes para o Pandas conseguir calcular o pct_change (Rendimento Mês a Mês)
+        dt_ini_yf = (pd.to_datetime(f"{mes_inicial}-01") - pd.DateOffset(months=1)).strftime('%Y-%m-%d')
+        dt_fim_yf = (periodo_fim + pd.DateOffset(days=5)).strftime('%Y-%m-%d')
+        
+        df_ibov_raw = yf.download('^BVSP', start=dt_ini_yf, end=dt_fim_yf, interval='1mo', progress=False)
+        if not df_ibov_raw.empty and 'Close' in df_ibov_raw.columns:
+            close_col = df_ibov_raw['Close']
+            # Se o YF retornar MultiIndex, extrai a primeira coluna
+            if isinstance(close_col, pd.DataFrame): 
+                close_col = close_col.iloc[:, 0]
+            # Limpa Fuso Horário
+            if close_col.index.tz is not None:
+                close_col.index = close_col.index.tz_localize(None)
+                
+            df_ret = close_col.pct_change()
+            for idx_date, val in df_ret.items():
+                if pd.notna(val):
+                    mes_str = str(idx_date)[:7] 
+                    df_bench.loc[df_bench['MesAno'] == mes_str, 'IBOV'] = float(val)
+    except Exception as e:
+        print(f"Erro ao buscar IBOV: {e}")
+
+    return df_bench.set_index('MesAno').to_dict(orient='index')
+
+# ==========================================
+# RENDERIZAÇÃO DA PÁGINA
+# ==========================================
 def render():
     st.title("📈 Evolução Real do Patrimônio")
-    st.markdown("Compare o **Dinheiro Novo Aportado** (Depósitos) com o **Valor de Mercado**.")
+    st.markdown("Compare o **Dinheiro Líquido do Bolso** (Aportes menos Saques) com o **Valor de Mercado**.")
 
-    with st.spinner("Construindo linha do tempo da sua carteira..."):
+    # --- NOVO: MULTISELECT DE BENCHMARKS ---
+    benchmarks_selecionados = st.multiselect(
+        "🔎 Adicionar Comparador de Benchmark (Saldo Teórico):",
+        options=["CDI", "IBOVESPA", "IPCA"],
+        default=[],
+        help="Simula o que teria acontecido se todo o dinheiro que você aportou/sacou tivesse sido investido 100% nesses indicadores desde o primeiro mês."
+    )
+
+    with st.spinner("Construindo linha do tempo da sua carteira e processando indicadores..."):
         
         hoje = pd.Timestamp.today()
         
-        # --- 1. LER E TRATAR DEPÓSITOS ---
+        # --- 1. LER E TRATAR CAIXA (APORTES/SAQUES) ---
         df_dep = ler_planilha("Depositos")
         if not df_dep.empty and 'Email' in df_dep.columns:
             df_dep['Email'] = df_dep['Email'].astype(str).str.strip().str.lower()
@@ -20,10 +103,7 @@ def render():
             if not df_user_dep.empty:
                 df_user_dep['Data'] = pd.to_datetime(df_user_dep['Data'], dayfirst=True, errors='coerce')
                 df_user_dep['Data'] = df_user_dep['Data'].fillna(hoje)
-                
-                # TRAVA DE TEMPO: Traz qualquer depósito com data no futuro para Hoje
                 df_user_dep.loc[df_user_dep['Data'] > hoje, 'Data'] = hoje
-                
                 df_user_dep['Valor'] = df_user_dep['Valor'].apply(extrair_numero_br)
                 df_user_dep['MesAno'] = df_user_dep['Data'].dt.strftime('%Y-%m')
                 df_dep_agrupado = df_user_dep.groupby('MesAno')['Valor'].sum().reset_index()
@@ -45,9 +125,7 @@ def render():
                 else:
                     df_user_inv['DataCompra'] = hoje
                 
-                # TRAVA DE TEMPO: Traz qualquer compra com data no futuro para Hoje
                 df_user_inv.loc[df_user_inv['DataCompra'] > hoje, 'DataCompra'] = hoje
-                
                 df_user_inv['Ativo'] = df_user_inv['Ativo'].astype(str).str.strip().str.upper()
                 df_user_inv['Quantidade'] = df_user_inv['Quantidade'].apply(extrair_numero_br)
                 
@@ -77,7 +155,7 @@ def render():
             df_inv_agrupado = pd.DataFrame(columns=['MesAno', 'Ativo', 'Quantidade', 'TotalCusto', 'PrecoLive', 'TemCotacao'])
 
         if df_dep_agrupado.empty and df_inv_agrupado.empty:
-            st.info("Registre depósitos e compras na aba '📝 Lançamentos' para ver a evolução do seu patrimônio.")
+            st.info("Registre aportes e movimentações na aba '📝 Lançamentos' para ver a evolução do seu patrimônio.")
             return
 
         # --- 3. CRIAR A LINHA DO TEMPO CONTÍNUA ---
@@ -88,23 +166,55 @@ def render():
         mes_atual = hoje.strftime('%Y-%m')
         
         if todos_meses:
-            # Garante que o mês inicial nunca seja maior que o mês atual
             mes_inicial = min(todos_meses[0], mes_atual)
         else:
             mes_inicial = mes_atual
             
-        # OBRIGA O GRÁFICO A MORRER NO MÊS ATUAL
         mes_final = mes_atual
             
         range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_final}-01", freq='MS').strftime('%Y-%m').tolist()
         df_timeline = pd.DataFrame({'MesAno': range_meses})
         
-        # --- 4. CALCULAR DEPÓSITOS ACUMULADOS ---
-        df_timeline = pd.merge(df_timeline, df_dep_agrupado, on='MesAno', how='left')
-        df_timeline['Valor'] = df_timeline['Valor'].fillna(0)
-        df_timeline['TotalAportado'] = df_timeline['Valor'].cumsum()
+        # --- 4. CALCULAR CAIXA LÍQUIDO ACUMULADO E SALDO TEÓRICO DOS BENCHMARKS ---
+        dict_benchmarks = obter_historico_benchmarks(mes_inicial, mes_final)
+        
+        saldo_cdi = 0.0
+        saldo_ibov = 0.0
+        saldo_ipca = 0.0
+        
+        linha_aportes = []
+        linha_cdi = []
+        linha_ibov = []
+        linha_ipca = []
+        
+        total_aportado = 0.0
+        
+        for mes in range_meses:
+            aporte_mes = df_dep_agrupado.loc[df_dep_agrupado['MesAno'] == mes, 'Valor'].sum() if not df_dep_agrupado.empty else 0.0
+            
+            # Adiciona o aporte do mês no saldo antes de renderizar os juros
+            total_aportado += aporte_mes
+            saldo_cdi += aporte_mes
+            saldo_ibov += aporte_mes
+            saldo_ipca += aporte_mes
+            
+            # Aplica o rendimento do mês
+            b_data = dict_benchmarks.get(mes, {'CDI': 0.0, 'IPCA': 0.0, 'IBOV': 0.0})
+            saldo_cdi *= (1 + float(b_data['CDI']))
+            saldo_ibov *= (1 + float(b_data['IBOV']))
+            saldo_ipca *= (1 + float(b_data['IPCA']))
+            
+            linha_aportes.append(total_aportado)
+            linha_cdi.append(saldo_cdi)
+            linha_ibov.append(saldo_ibov)
+            linha_ipca.append(saldo_ipca)
+            
+        df_timeline['TotalAportado'] = linha_aportes
+        df_timeline['Valor_CDI'] = linha_cdi
+        df_timeline['Valor_IBOV'] = linha_ibov
+        df_timeline['Valor_IPCA'] = linha_ipca
 
-        # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO ---
+        # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO DA CARTEIRA ---
         linha_mercado = []
         estoque_ativos = {} 
         
@@ -147,42 +257,63 @@ def render():
         lucro_pct = (lucro_rs / live_aportado * 100) if live_aportado > 0 else 0
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Dinheiro do Bolso (Depósitos)", formata_br(live_aportado))
+        col1.metric("Dinheiro do Bolso (Líquido)", formata_br(live_aportado))
         col2.metric("Saldo Atual (Mercado)", formata_br(live_atual))
         col3.metric("Rentabilidade Real", formata_br(lucro_rs), f"{lucro_pct:+.2f}%".replace('.', ','))
         
         st.markdown("---")
 
-        # --- 7. GRÁFICO PLOTLY ---
+        # --- 7. GRÁFICO PLOTLY SUPER CARREGADO ---
         fig = go.Figure()
 
+        # Linha Base: Dinheiro que saiu do bolso
         fig.add_trace(go.Scatter(
-            x=df_timeline['MesExibicao'], 
-            y=df_timeline['TotalAportado'],
-            mode='lines+markers', 
-            name='Dinheiro Aportado',
+            x=df_timeline['MesExibicao'], y=df_timeline['TotalAportado'],
+            mode='lines+markers', name='Dinheiro Líquido Aportado',
             line=dict(color='#8c92ac', width=3, dash='dot'),
-            fill='tozeroy', 
-            fillcolor='rgba(140, 146, 172, 0.1)',
+            fill='tozeroy', fillcolor='rgba(140, 146, 172, 0.1)',
             hovertemplate="Aportado Acumulado: R$ %{y:,.2f}<extra></extra>"
         ))
 
         cor_saldo = '#00cc96' if live_atual >= live_aportado else '#ef553b'
         cor_area = 'rgba(0, 204, 150, 0.25)' if live_atual >= live_aportado else 'rgba(239, 85, 59, 0.25)'
         
+        # Linha Principal: A Carteira do Usuário
         fig.add_trace(go.Scatter(
-            x=df_timeline['MesExibicao'], 
-            y=df_timeline['ValorMercado'],
-            mode='lines+markers', 
-            name='Valor de Mercado',
+            x=df_timeline['MesExibicao'], y=df_timeline['ValorMercado'],
+            mode='lines+markers', name='Sua Carteira',
             line=dict(color=cor_saldo, width=3),
-            fill='tonexty', 
-            fillcolor=cor_area,
-            hovertemplate="Valor de Mercado: R$ %{y:,.2f}<extra></extra>"
+            fill='tonexty', fillcolor=cor_area,
+            hovertemplate="Sua Carteira: R$ %{y:,.2f}<extra></extra>"
         ))
 
+        # --- INJEÇÃO DOS BENCHMARKS ESCOLHIDOS PELO USUÁRIO ---
+        if "CDI" in benchmarks_selecionados:
+            fig.add_trace(go.Scatter(
+                x=df_timeline['MesExibicao'], y=df_timeline['Valor_CDI'],
+                mode='lines+markers', name='Teórico 100% CDI',
+                line=dict(color='#ffbf00', width=2, dash='dash'),
+                hovertemplate="Teórico CDI: R$ %{y:,.2f}<extra></extra>"
+            ))
+            
+        if "IBOVESPA" in benchmarks_selecionados:
+            fig.add_trace(go.Scatter(
+                x=df_timeline['MesExibicao'], y=df_timeline['Valor_IBOV'],
+                mode='lines+markers', name='Teórico IBOVESPA',
+                line=dict(color='#33b5e5', width=2, dash='dash'),
+                hovertemplate="Teórico IBOV: R$ %{y:,.2f}<extra></extra>"
+            ))
+            
+        if "IPCA" in benchmarks_selecionados:
+            fig.add_trace(go.Scatter(
+                x=df_timeline['MesExibicao'], y=df_timeline['Valor_IPCA'],
+                mode='lines+markers', name='Correção IPCA',
+                line=dict(color='#9933cc', width=2, dash='dash'),
+                hovertemplate="Correção IPCA: R$ %{y:,.2f}<extra></extra>"
+            ))
+
         fig.update_layout(
-            height=450, 
+            height=480, 
             margin=dict(l=0, r=0, t=30, b=0),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             hovermode="x unified", 
@@ -195,18 +326,18 @@ def render():
     # --- 8. AUDITORIA VISUAL ---
     st.markdown("<br>", unsafe_allow_html=True)
     with st.expander("🔍 Inspecionar Dados Lidos (Auditoria)"):
-        st.markdown("Se o gráfico parecer estranho, confira nas tabelas abaixo em quais meses o sistema agrupou os seus depósitos:")
+        st.markdown("Confira nas tabelas abaixo em quais meses o sistema agrupou os seus lançamentos de caixa:")
         c_dbg1, c_dbg2 = st.columns(2)
         with c_dbg1:
-            st.markdown("**1. Soma dos Depósitos por Mês**")
+            st.markdown("**1. Movimentação de Caixa por Mês**")
             if not df_dep_agrupado.empty:
                 df_dep_exibicao = df_dep_agrupado.copy()
                 df_dep_exibicao['Valor'] = df_dep_exibicao['Valor'].apply(formata_br)
                 st.dataframe(df_dep_exibicao, hide_index=True, use_container_width=True)
             else:
-                st.info("Nenhum depósito agrupado.")
+                st.info("Nenhuma movimentação agrupada.")
         with c_dbg2:
             st.markdown("**2. Acúmulo no Gráfico**")
-            df_dbg = df_timeline[['MesExibicao', 'Valor', 'TotalAportado']].copy()
-            df_dbg.rename(columns={'Valor': 'Depósito no Mês', 'TotalAportado': 'Linha Cinza'}, inplace=True)
+            df_dbg = df_timeline[['MesExibicao', 'TotalAportado', 'ValorMercado']].copy()
+            df_dbg.rename(columns={'TotalAportado': 'Linha Cinza', 'ValorMercado': 'Linha Colorida'}, inplace=True)
             st.dataframe(df_dbg, hide_index=True, use_container_width=True)
