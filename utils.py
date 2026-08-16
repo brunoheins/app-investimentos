@@ -124,15 +124,32 @@ def salvar_configuracao(email, dados_dict):
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def buscar_setor_yahoo(ativo, categoria):
-    """Busca o setor do ativo no Yahoo Finance e traduz para o Português"""
-    import yfinance as yf
-    import re
-    
+    """Busca o setor do ativo no Yahoo Finance ou no Dicionário Inteligente (FIIs)"""
     if categoria == "Renda Fixa":
         return "Renda Fixa"
         
+    t_clean = str(ativo).upper().replace(".SA", "").strip()
+
+    # --- DICIONÁRIO INTELIGENTE PARA OS MAIORES FIIs DA B3 ---
+    if categoria == "FIIs":
+        fiis_papel = ["MXRF11", "KNCR11", "KNIP11", "CPTS11", "IRDM11", "RECR11", "VGIR11", "VRTA11", "HCTR11", "DEVA11", "VGHF11", "MCCI11", "CVBI11", "HGCR11", "KNSC11", "RBRR11", "URPR11", "HABT11", "VCJR11", "ARRI11", "RBRY11", "OUJP11", "CACR11", "NCHB11", "KNHY11", "SNCI11", "RZAK11", "BARI11"]
+        fiis_logistica = ["HGLG11", "BTLG11", "XPLG11", "VILG11", "BRCO11", "LVBI11", "GGRC11", "HSLG11", "RBRL11", "SDIL11", "TRXF11", "GALG11", "GARE11", "HLG11", "FIIB11", "VTLG11", "PATL11"]
+        fiis_shoppings = ["XPML11", "VISC11", "HSML11", "MALL11", "HGBS11", "WPLZ11", "GSFI11", "CPSH11", "MALS11"]
+        fiis_lajes = ["HGRE11", "BRCR11", "PVBI11", "JSRE11", "VINO11", "RECT11", "TEPP11", "RCRB11", "RBED11", "CBOP11", "HOFC11", "VLOL11"]
+        fiis_hibridos = ["KNRI11", "ALZR11", "TGAR11", "HGRU11", "KFOF11", "MAXR11", "TRXF11", "RBVA11", "MCHY11"]
+        fiis_fof = ["BCFF11", "HFOF11", "KISU11", "RBRF11", "MGFF11", "CPFF11", "XPFN11", "HGFF11", "KFOF11", "BLMG11", "RZFO11"]
+        fiis_agro = ["VGIA11", "RZAG11", "SNAG11", "KNCA11", "RURA11", "EGAF11", "FGAA11", "GCRA11", "VCRA11", "XPCA11", "DCRA11", "AGRX11"]
+        
+        if t_clean in fiis_papel: return "Papel (TVM)"
+        if t_clean in fiis_logistica: return "Logística"
+        if t_clean in fiis_shoppings: return "Shoppings"
+        if t_clean in fiis_lajes: return "Lajes Corporativas"
+        if t_clean in fiis_hibridos: return "Híbrido"
+        if t_clean in fiis_fof: return "Fundo de Fundos (FOF)"
+        if t_clean in fiis_agro: return "Fiagro"
+
+    # --- FALLBACK: YAHOO FINANCE PARA AÇÕES, STOCKS, REITs e ETFs ---
     ticker = ativo
-    # Normaliza tickers brasileiros
     if categoria in ["Ações", "FIIs"]:
         if "." not in ticker and re.search(r'\d+$', ticker):
             ticker = f"{ticker}.SA"
@@ -141,11 +158,9 @@ def buscar_setor_yahoo(ativo, categoria):
         info = yf.Ticker(ticker).info
         setor = info.get('sector', '')
         
-        # Se não tiver 'sector', tenta o 'industry' (comum em FIIs)
         if not setor or str(setor).lower() in ['none', 'nan', '']:
             setor = info.get('industry', 'Não Classificado')
             
-        # Dicionário de tradução dos padrões da GICS (Global Industry Classification Standard)
         traducao = {
             "Financial Services": "Financeiro",
             "Utilities": "Utilidade Pública",
@@ -186,7 +201,7 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             df_all = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso", "Setor"])
             
         if 'Setor' not in df_all.columns:
-            df_all['Setor'] = "Não Classificado"
+            df_all['Setor'] = ""
         
         if not df_all.empty and 'Email' in df_all.columns:
             df_all['Email'] = df_all['Email'].astype(str).str.strip().str.lower()
@@ -202,10 +217,10 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             val_peso = row.get(col_peso, 0)
             peso = float(val_peso) if pd.notna(val_peso) and str(val_peso).strip() != '' else 0.0
             
-            setor = str(row.get('Setor', 'Não Classificado')).strip()
+            setor = str(row.get('Setor', '')).strip()
             
-            # A MÁGICA ACONTECE AQUI: Se o usuário deixou como "Não Classificado", o robô busca!
-            if not setor or setor.lower() in ['nan', 'não classificado', 'nao classificado']:
+            # SE O CAMPO ESTIVER VAZIO, CHAMA A FUNÇÃO AUTOMÁTICA
+            if not setor or setor.lower() in ['nan', 'none', 'não classificado', 'nao classificado']:
                 setor = buscar_setor_yahoo(ativo, categoria)
             
             if ativo and ativo != "NAN":
@@ -214,8 +229,8 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         dados_finais = [["Email", "Categoria", "Ativo", "Peso", "Setor"]]
         if not df_filtered.empty:
             for _, r in df_filtered.iterrows():
-                setor_r = str(r.get('Setor', 'Não Classificado')).strip()
-                if not setor_r or setor_r.lower() == 'nan': setor_r = "Não Classificado"
+                setor_r = str(r.get('Setor', '')).strip()
+                if not setor_r or setor_r.lower() in ['nan', 'none']: setor_r = "Não Classificado"
                 dados_finais.append([r['Email'], r['Categoria'], r['Ativo'], r['Peso'], setor_r])
                 
         for nl in novas_linhas:
