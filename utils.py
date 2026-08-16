@@ -99,21 +99,26 @@ def salvar_configuracao(email, dados_dict):
         valores = sheet.get_all_values()
         df = pd.DataFrame(valores[1:], columns=valores[0]) if len(valores) > 1 else pd.DataFrame(columns=["Email"])
         
+        # Garante que todos os valores matemáticos sejam passados como float
         row_values = [
-            email, dados_dict['RF'], dados_dict['RV'], 
-            dados_dict['RV_Brasil'], dados_dict['RV_Exterior'], 
-            dados_dict['BR_Acoes'], dados_dict['BR_FIIs'], 
-            dados_dict['EX_Stocks'], dados_dict['EX_REITs'], dados_dict['EX_ETFs']
+            email, 
+            float(dados_dict['RF']), float(dados_dict['RV']), 
+            float(dados_dict['RV_Brasil']), float(dados_dict['RV_Exterior']), 
+            float(dados_dict['BR_Acoes']), float(dados_dict['BR_FIIs']), 
+            float(dados_dict['EX_Stocks']), float(dados_dict['EX_REITs']), float(dados_dict['EX_ETFs'])
         ]
         
         if not df.empty and email in df['Email'].astype(str).str.strip().str.lower().values:
             idx = df[df['Email'].astype(str).str.strip().str.lower() == email].index[0]
             row_num = idx + 2
-            sheet.update(f"A{row_num}:J{row_num}", [row_values])
+            try:
+                sheet.update(range_name=f"A{row_num}:J{row_num}", values=[row_values], value_input_option='USER_ENTERED')
+            except TypeError:
+                sheet.update(f"A{row_num}:J{row_num}", [row_values], value_input_option='USER_ENTERED')
         else:
-            sheet.append_row(row_values)
+            sheet.append_row(row_values, value_input_option='USER_ENTERED')
             
-        st.cache_data.clear() # Limpa a memória após escrever
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
@@ -178,9 +183,6 @@ def buscar_setor_yahoo(ativo, categoria):
     except:
         return "Não Classificado"
 
-# ==========================================
-# SALVAMENTO NA PLANILHA COM AUTO-PREENCHIMENTO
-# ==========================================
 def salvar_ativos_categoria(email, categoria, df_ativos):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -218,26 +220,38 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             peso = float(val_peso) if pd.notna(val_peso) and str(val_peso).strip() != '' else 0.0
             
             setor = str(row.get('Setor', '')).strip()
-            
-            # SE O CAMPO ESTIVER VAZIO, CHAMA A FUNÇÃO AUTOMÁTICA
             if not setor or setor.lower() in ['nan', 'none', 'não classificado', 'nao classificado']:
                 setor = buscar_setor_yahoo(ativo, categoria)
             
             if ativo and ativo != "NAN":
-                novas_linhas.append([email, categoria, ativo, peso, setor])
+                # Salva o peso nativamente como FLOAT
+                novas_linhas.append([email, categoria, ativo, float(peso), setor])
                 
         dados_finais = [["Email", "Categoria", "Ativo", "Peso", "Setor"]]
+        
+        # REESCREVE A PLANILHA ANTIGA LIMPANDO OS TEXTOS/APÓSTROFOS
         if not df_filtered.empty:
             for _, r in df_filtered.iterrows():
                 setor_r = str(r.get('Setor', '')).strip()
                 if not setor_r or setor_r.lower() in ['nan', 'none']: setor_r = "Não Classificado"
-                dados_finais.append([r['Email'], r['Categoria'], r['Ativo'], r['Peso'], setor_r])
+                
+                peso_str = str(r.get('Peso', '0')).replace(',', '.')
+                try:
+                    peso_real = float(peso_str)
+                except:
+                    peso_real = 0.0
+                
+                dados_finais.append([r['Email'], r['Categoria'], r['Ativo'], peso_real, setor_r])
                 
         for nl in novas_linhas:
             dados_finais.append(nl)
             
         sheet.clear()
-        sheet.update("A1", dados_finais)
+        
+        try:
+            sheet.update(range_name="A1", values=dados_finais, value_input_option="USER_ENTERED")
+        except TypeError:
+            sheet.update("A1", dados_finais, value_input_option="USER_ENTERED")
         
         st.cache_data.clear() 
         return True
@@ -477,10 +491,10 @@ def registrar_deposito(email, data, valor):
             sheet = client.open("App_Investimentos").add_worksheet(title="Depositos", rows=100, cols=3)
             sheet.append_row(["Email", "Data", "Valor"])
             
-        valor_str = f"{valor:.2f}".replace('.', ',')
-        sheet.append_row([email, data, valor_str])
+        # Garante que o valor seja salvo nativamente como FLOAT (sem virar texto)
+        sheet.append_row([email, data, float(valor)], value_input_option='USER_ENTERED')
         
-        st.cache_data.clear() # Limpa a memória após escrever
+        st.cache_data.clear() 
         return True
     except Exception as e:
         st.error(f"Erro ao salvar depósito: {e}")
@@ -494,12 +508,16 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, obs
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Investimentos")
         
-        qtd_str = f"{quantidade:.4f}".replace('.', ',').rstrip('0').rstrip(',')
-        preco_str = f"{preco_medio:.4f}".replace('.', ',')
+        # Converte para float real, sem formatações de string
+        qtd_float = float(quantidade)
+        preco_float = float(preco_medio)
         
-        sheet.append_row([email, data, categoria, ativo, qtd_str, preco_str, observacao])
+        sheet.append_row(
+            [email, data, categoria, ativo, qtd_float, preco_float, observacao], 
+            value_input_option='USER_ENTERED'
+        )
         
-        st.cache_data.clear() # Limpa a memória após escrever
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Erro ao salvar compra: {e}")
