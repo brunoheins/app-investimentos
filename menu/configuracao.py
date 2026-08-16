@@ -254,6 +254,8 @@ def render():
 
         col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
         
+        col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
+        
         with col_tabela:
             df_editado = st.data_editor(
                 df_inicial,
@@ -264,7 +266,11 @@ def render():
                 column_config={
                     "Ativo": st.column_config.TextColumn("Ativo (Ticker)", required=True),
                     "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.5, format="%.2f"),
-                    "Setor": st.column_config.TextColumn("Setor / Segmento", help="Ex: Bancos, Energia, Shoppings...", default="Não Classificado")
+                    "Setor": st.column_config.TextColumn(
+                        "Setor / Segmento", 
+                        help="Deixe como 'Não Classificado' e o sistema preencherá automaticamente ao salvar!", 
+                        default="Não Classificado"
+                    )
                 }
             )
 
@@ -281,9 +287,11 @@ def render():
                 if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
-                    if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
-                        st.success(f"Ativos salvos!")
-                        st.rerun()
+                    
+                    with st.spinner("Salvando e processando setores no Yahoo..."):
+                        if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
+                            st.success(f"Ativos salvos!")
+                            st.rerun()
 
         # Desenha o gráfico de pizza do setor ao lado
         with col_graf_setor:
