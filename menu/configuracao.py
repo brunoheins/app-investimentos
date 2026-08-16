@@ -236,15 +236,24 @@ def render():
         else:
             df_ativos_user = pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
 
-        df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_selecionada][['Ativo', 'Peso']].copy()
+        # Traz as colunas incluindo o Setor
+        cols_disp = ['Ativo', 'Peso']
+        if 'Setor' in df_ativos_user.columns:
+            cols_disp.append('Setor')
+            
+        df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_selecionada][cols_disp].copy()
         
+        if 'Setor' not in df_cat_salvo.columns:
+            df_cat_salvo['Setor'] = 'Não Classificado'
+            
         if df_cat_salvo.empty:
-            df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0]})
+            df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0], "Setor": ["Não Classificado"]})
         else:
             df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
             df_inicial = df_cat_salvo
 
-        col_tabela, col_vazia = st.columns([1.5, 1])
+        col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
+        
         with col_tabela:
             df_editado = st.data_editor(
                 df_inicial,
@@ -254,7 +263,8 @@ def render():
                 key=f"editor_cat_v2_{cat_selecionada}",
                 column_config={
                     "Ativo": st.column_config.TextColumn("Ativo (Ticker)", required=True),
-                    "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.5, format="%.2f")
+                    "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.5, format="%.2f"),
+                    "Setor": st.column_config.TextColumn("Setor / Segmento", help="Ex: Bancos, Energia, Shoppings...", default="Não Classificado")
                 }
             )
 
@@ -268,10 +278,29 @@ def render():
                     st.warning(f"⚠️ Soma: **{soma_pesos:.2f}%** (O ideal é 100%)")
             
             with col_btn:
-                # Botão sem o type="primary" para manter o padrão cinza
                 if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
-                        st.success(f"Ativos de {cat_selecionada} salvos!")
+                        st.success(f"Ativos salvos!")
                         st.rerun()
+
+        # Desenha o gráfico de pizza do setor ao lado
+        with col_graf_setor:
+            st.markdown(f"**Exposição Setorial Alvo ({cat_selecionada})**")
+            
+            # Agrupa os pesos editados por setor
+            df_setores = df_editado.copy()
+            df_setores['Peso (%)'] = pd.to_numeric(df_setores['Peso (%)'], errors='coerce').fillna(0)
+            df_setores['Setor'] = df_setores['Setor'].fillna('Não Classificado').apply(lambda x: 'Não Classificado' if str(x).strip() == '' else x)
+            
+            df_group_setor = df_setores.groupby('Setor')['Peso (%)'].sum().reset_index()
+            df_group_setor = df_group_setor[df_group_setor['Peso (%)'] > 0]
+            
+            if not df_group_setor.empty:
+                fig_setores = px.pie(df_group_setor, values='Peso (%)', names='Setor', hole=0.4)
+                fig_setores.update_traces(textinfo='percent', textposition='inside')
+                fig_setores.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=True, legend=dict(orientation="h", y=-0.2))
+                st.plotly_chart(fig_setores, use_container_width=True)
+            else:
+                st.info("Preencha a tabela para ver a distribuição.")
