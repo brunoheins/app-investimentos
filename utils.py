@@ -119,6 +119,53 @@ def salvar_configuracao(email, dados_dict):
         st.error(f"Erro ao salvar na planilha: {e}")
         return False
 
+# ==========================================
+# BUSCA AUTOMÁTICA DE SETORES
+# ==========================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def buscar_setor_yahoo(ativo, categoria):
+    """Busca o setor do ativo no Yahoo Finance e traduz para o Português"""
+    import yfinance as yf
+    import re
+    
+    if categoria == "Renda Fixa":
+        return "Renda Fixa"
+        
+    ticker = ativo
+    # Normaliza tickers brasileiros
+    if categoria in ["Ações", "FIIs"]:
+        if "." not in ticker and re.search(r'\d+$', ticker):
+            ticker = f"{ticker}.SA"
+            
+    try:
+        info = yf.Ticker(ticker).info
+        setor = info.get('sector', '')
+        
+        # Se não tiver 'sector', tenta o 'industry' (comum em FIIs)
+        if not setor or str(setor).lower() in ['none', 'nan', '']:
+            setor = info.get('industry', 'Não Classificado')
+            
+        # Dicionário de tradução dos padrões da GICS (Global Industry Classification Standard)
+        traducao = {
+            "Financial Services": "Financeiro",
+            "Utilities": "Utilidade Pública",
+            "Basic Materials": "Materiais Básicos",
+            "Industrials": "Industrial",
+            "Consumer Defensive": "Consumo Não-Cíclico",
+            "Consumer Cyclical": "Consumo Cíclico",
+            "Healthcare": "Saúde",
+            "Technology": "Tecnologia",
+            "Communication Services": "Comunicações",
+            "Energy": "Energia",
+            "Real Estate": "Imobiliário"
+        }
+        return traducao.get(setor, setor if setor else "Não Classificado")
+    except:
+        return "Não Classificado"
+
+# ==========================================
+# SALVAMENTO NA PLANILHA COM AUTO-PREENCHIMENTO
+# ==========================================
 def salvar_ativos_categoria(email, categoria, df_ativos):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -138,7 +185,6 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         else:
             df_all = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso", "Setor"])
             
-        # Mágica da Compatibilidade: Se a aba antiga não tinha a coluna Setor, adicionamos na memória
         if 'Setor' not in df_all.columns:
             df_all['Setor'] = "Não Classificado"
         
@@ -156,9 +202,11 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             val_peso = row.get(col_peso, 0)
             peso = float(val_peso) if pd.notna(val_peso) and str(val_peso).strip() != '' else 0.0
             
-            # Puxa o Setor novo (se o usuário preencheu)
             setor = str(row.get('Setor', 'Não Classificado')).strip()
-            if not setor or setor.lower() == 'nan': setor = "Não Classificado"
+            
+            # A MÁGICA ACONTECE AQUI: Se o usuário deixou como "Não Classificado", o robô busca!
+            if not setor or setor.lower() in ['nan', 'não classificado', 'nao classificado']:
+                setor = buscar_setor_yahoo(ativo, categoria)
             
             if ativo and ativo != "NAN":
                 novas_linhas.append([email, categoria, ativo, peso, setor])
@@ -176,7 +224,7 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         sheet.clear()
         sheet.update("A1", dados_finais)
         
-        st.cache_data.clear() # Limpa a memória após escrever
+        st.cache_data.clear() 
         return True
     except Exception as e:
         st.error(f"Erro ao salvar ativos: {e}")
