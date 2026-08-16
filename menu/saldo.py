@@ -10,7 +10,7 @@ from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def obter_historico_benchmarks(mes_inicial, mes_final):
-    """Busca o CDI, IPCA e IBOVESPA do mês inicial até o mês final, de forma segura e com fallback"""
+    """Busca o CDI, IPCA, IBOVESPA e S&P 500 (em BRL) do mês inicial até o mês final"""
     dt_ini_bcb = f"01/{mes_inicial[-2:]}/{mes_inicial[:4]}"
     periodo_fim = pd.to_datetime(mes_final + '-01') + pd.offsets.MonthEnd(1)
     dt_fim_bcb = periodo_fim.strftime('%d/%m/%Y')
@@ -19,6 +19,7 @@ def obter_historico_benchmarks(mes_inicial, mes_final):
     df_bench['CDI'] = 0.0
     df_bench['IPCA'] = 0.0
     df_bench['IBOV'] = 0.0
+    df_bench['SP500_BRL'] = 0.0
     
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
@@ -48,26 +49,43 @@ def obter_historico_benchmarks(mes_inicial, mes_final):
     except Exception as e:
         print(f"Erro ao buscar IPCA: {e}")
 
-    # 3. IBOVESPA (Yahoo Finance)
+    # 3. IBOVESPA e S&P 500 ATRELADO AO DÓLAR (Yahoo Finance)
     try:
         dt_ini_yf = (pd.to_datetime(f"{mes_inicial}-01") - pd.DateOffset(months=1)).strftime('%Y-%m-%d')
         dt_fim_yf = (periodo_fim + pd.DateOffset(days=5)).strftime('%Y-%m-%d')
         
-        df_ibov_raw = yf.download('^BVSP', start=dt_ini_yf, end=dt_fim_yf, interval='1mo', progress=False)
-        if not df_ibov_raw.empty and 'Close' in df_ibov_raw.columns:
-            close_col = df_ibov_raw['Close']
-            if isinstance(close_col, pd.DataFrame): 
-                close_col = close_col.iloc[:, 0]
-            if close_col.index.tz is not None:
-                close_col.index = close_col.index.tz_localize(None)
+        # Baixamos IBOV, S&P 500 e o DÓLAR
+        tickers = ['^BVSP', '^GSPC', 'BRL=X']
+        df_yf = yf.download(tickers, start=dt_ini_yf, end=dt_fim_yf, interval='1mo', progress=False)
+        
+        if not df_yf.empty and 'Close' in df_yf.columns:
+            df_close = df_yf['Close']
+            
+            # Limpa o timezone para evitar conflitos de data
+            if df_close.index.tz is not None:
+                df_close.index = df_close.index.tz_localize(None)
                 
-            df_ret = close_col.pct_change()
-            for idx_date, val in df_ret.items():
-                if pd.notna(val):
-                    mes_str = str(idx_date)[:7] 
-                    df_bench.loc[df_bench['MesAno'] == mes_str, 'IBOV'] = float(val)
+            # --- Retorno do IBOVESPA ---
+            if '^BVSP' in df_close.columns:
+                ret_ibov = df_close['^BVSP'].pct_change()
+                for idx_date, val in ret_ibov.items():
+                    if pd.notna(val):
+                        mes_str = str(idx_date)[:7] 
+                        df_bench.loc[df_bench['MesAno'] == mes_str, 'IBOV'] = float(val)
+
+            # --- Retorno do S&P 500 convertido para BRL ---
+            if '^GSPC' in df_close.columns and 'BRL=X' in df_close.columns:
+                # Multiplica os pontos do S&P 500 pela cotação do dólar para ter o índice em Reais
+                preco_sp500_brl = df_close['^GSPC'] * df_close['BRL=X']
+                ret_sp500_brl = preco_sp500_brl.pct_change()
+                
+                for idx_date, val in ret_sp500_brl.items():
+                    if pd.notna(val):
+                        mes_str = str(idx_date)[:7]
+                        df_bench.loc[df_bench['MesAno'] == mes_str, 'SP500_BRL'] = float(val)
+
     except Exception as e:
-        print(f"Erro ao buscar IBOV: {e}")
+        print(f"Erro ao buscar Benchmarks no YFinance: {e}")
 
     return df_bench.set_index('MesAno').to_dict(orient='index')
 
@@ -167,11 +185,13 @@ def render():
         
         saldo_cdi = 0.0
         saldo_ibov = 0.0
+        saldo_sp500 = 0.0
         saldo_ipca = 0.0
         
         linha_aportes = []
         linha_cdi = []
         linha_ibov = []
+        linha_sp500 = []
         linha_ipca = []
         
         total_aportado = 0.0
@@ -182,21 +202,26 @@ def render():
             total_aportado += aporte_mes
             saldo_cdi += aporte_mes
             saldo_ibov += aporte_mes
+            saldo_sp500 += aporte_mes
             saldo_ipca += aporte_mes
             
-            b_data = dict_benchmarks.get(mes, {'CDI': 0.0, 'IPCA': 0.0, 'IBOV': 0.0})
-            saldo_cdi *= (1 + float(b_data['CDI']))
-            saldo_ibov *= (1 + float(b_data['IBOV']))
-            saldo_ipca *= (1 + float(b_data['IPCA']))
+            # Aplica a rentabilidade do mês atual
+            b_data = dict_benchmarks.get(mes, {})
+            saldo_cdi *= (1 + float(b_data.get('CDI', 0.0)))
+            saldo_ibov *= (1 + float(b_data.get('IBOV', 0.0)))
+            saldo_sp500 *= (1 + float(b_data.get('SP500_BRL', 0.0)))
+            saldo_ipca *= (1 + float(b_data.get('IPCA', 0.0)))
             
             linha_aportes.append(total_aportado)
             linha_cdi.append(saldo_cdi)
             linha_ibov.append(saldo_ibov)
+            linha_sp500.append(saldo_sp500)
             linha_ipca.append(saldo_ipca)
             
         df_timeline['TotalAportado'] = linha_aportes
         df_timeline['Valor_CDI'] = linha_cdi
         df_timeline['Valor_IBOV'] = linha_ibov
+        df_timeline['Valor_SP500'] = linha_sp500
         df_timeline['Valor_IPCA'] = linha_ipca
 
         # --- 5. CALCULAR VALOR DE MERCADO ACUMULADO DA CARTEIRA ---
@@ -238,6 +263,7 @@ def render():
         
         live_cdi = df_timeline.iloc[-1]['Valor_CDI']
         live_ibov = df_timeline.iloc[-1]['Valor_IBOV']
+        live_sp500 = df_timeline.iloc[-1]['Valor_SP500']
         live_ipca = df_timeline.iloc[-1]['Valor_IPCA']
         
         lucro_rs = live_atual - live_aportado
@@ -255,25 +281,31 @@ def render():
         st.markdown("### 🔎 Simulador de Benchmarks (Saldo Teórico)")
         st.caption("E se todo o seu dinheiro tivesse sido investido nesses indicadores? Marque as opções para comparar:")
         
-        c_b1, c_b2, c_b3 = st.columns(3)
+        c_b1, c_b2, c_b3, c_b4 = st.columns(4)
         
-        show_cdi = c_b1.checkbox("📈 Comparar com CDI", value=False)
+        show_cdi = c_b1.checkbox("📈 100% CDI", value=False)
         if show_cdi:
             lucro_cdi = live_cdi - live_aportado
             pct_cdi = (lucro_cdi / live_aportado * 100) if live_aportado > 0 else 0
-            c_b1.metric("Teórico 100% CDI", formata_br(live_cdi), f"{pct_cdi:+.2f}%".replace('.', ','), delta_color="normal")
+            c_b1.metric("Teórico CDI", formata_br(live_cdi), f"{pct_cdi:+.2f}%".replace('.', ','), delta_color="normal")
             
-        show_ibov = c_b2.checkbox("📊 Comparar com IBOVESPA", value=False)
+        show_ibov = c_b2.checkbox("📊 IBOVESPA", value=False)
         if show_ibov:
             lucro_ibov = live_ibov - live_aportado
             pct_ibov = (lucro_ibov / live_aportado * 100) if live_aportado > 0 else 0
-            c_b2.metric("Teórico IBOVESPA", formata_br(live_ibov), f"{pct_ibov:+.2f}%".replace('.', ','), delta_color="normal")
+            c_b2.metric("Teórico IBOV", formata_br(live_ibov), f"{pct_ibov:+.2f}%".replace('.', ','), delta_color="normal")
             
-        show_ipca = c_b3.checkbox("🛒 Comparar com IPCA (Inflação)", value=False)
+        show_sp500 = c_b3.checkbox("🌎 S&P 500 (BRL)", value=False)
+        if show_sp500:
+            lucro_sp500 = live_sp500 - live_aportado
+            pct_sp500 = (lucro_sp500 / live_aportado * 100) if live_aportado > 0 else 0
+            c_b3.metric("Teórico S&P 500", formata_br(live_sp500), f"{pct_sp500:+.2f}%".replace('.', ','), delta_color="normal")
+            
+        show_ipca = c_b4.checkbox("🛒 IPCA (Inflação)", value=False)
         if show_ipca:
             lucro_ipca = live_ipca - live_aportado
             pct_ipca = (lucro_ipca / live_aportado * 100) if live_aportado > 0 else 0
-            c_b3.metric("Correção IPCA", formata_br(live_ipca), f"{pct_ipca:+.2f}%".replace('.', ','), delta_color="off")
+            c_b4.metric("Correção IPCA", formata_br(live_ipca), f"{pct_ipca:+.2f}%".replace('.', ','), delta_color="off")
             
         st.markdown("---")
 
@@ -316,6 +348,14 @@ def render():
                 mode='lines+markers', name='Teórico IBOVESPA',
                 line=dict(color='#33b5e5', width=2, dash='dash'),
                 hovertemplate="Teórico IBOV: R$ %{y:,.2f}<extra></extra>"
+            ))
+            
+        if show_sp500:
+            fig.add_trace(go.Scatter(
+                x=df_timeline['MesExibicao'], y=df_timeline['Valor_SP500'],
+                mode='lines+markers', name='Teórico S&P 500 (BRL)',
+                line=dict(color='#ff4444', width=2, dash='dash'),
+                hovertemplate="Teórico S&P 500: R$ %{y:,.2f}<extra></extra>"
             ))
             
         if show_ipca:
