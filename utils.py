@@ -129,21 +129,25 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         try:
             sheet = client.open("App_Investimentos").worksheet("Ativos_Config")
         except:
-            sheet = client.open("App_Investimentos").add_worksheet(title="Ativos_Config", rows=100, cols=4)
-            sheet.append_row(["Email", "Categoria", "Ativo", "Peso"])
+            sheet = client.open("App_Investimentos").add_worksheet(title="Ativos_Config", rows=100, cols=5)
+            sheet.append_row(["Email", "Categoria", "Ativo", "Peso", "Setor"])
             
         valores = sheet.get_all_values()
         if valores:
             df_all = pd.DataFrame(valores[1:], columns=valores[0])
         else:
-            df_all = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso"])
+            df_all = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso", "Setor"])
+            
+        # Mágica da Compatibilidade: Se a aba antiga não tinha a coluna Setor, adicionamos na memória
+        if 'Setor' not in df_all.columns:
+            df_all['Setor'] = "Não Classificado"
         
         if not df_all.empty and 'Email' in df_all.columns:
             df_all['Email'] = df_all['Email'].astype(str).str.strip().str.lower()
             df_all['Categoria'] = df_all['Categoria'].astype(str).str.strip()
             df_filtered = df_all[~((df_all['Email'] == email) & (df_all['Categoria'] == categoria))]
         else:
-            df_filtered = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso"])
+            df_filtered = pd.DataFrame(columns=["Email", "Categoria", "Ativo", "Peso", "Setor"])
             
         novas_linhas = []
         for _, row in df_ativos.iterrows():
@@ -152,13 +156,20 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
             val_peso = row.get(col_peso, 0)
             peso = float(val_peso) if pd.notna(val_peso) and str(val_peso).strip() != '' else 0.0
             
+            # Puxa o Setor novo (se o usuário preencheu)
+            setor = str(row.get('Setor', 'Não Classificado')).strip()
+            if not setor or setor.lower() == 'nan': setor = "Não Classificado"
+            
             if ativo and ativo != "NAN":
-                novas_linhas.append([email, categoria, ativo, peso])
+                novas_linhas.append([email, categoria, ativo, peso, setor])
                 
-        dados_finais = [["Email", "Categoria", "Ativo", "Peso"]]
+        dados_finais = [["Email", "Categoria", "Ativo", "Peso", "Setor"]]
         if not df_filtered.empty:
             for _, r in df_filtered.iterrows():
-                dados_finais.append([r['Email'], r['Categoria'], r['Ativo'], r['Peso']])
+                setor_r = str(r.get('Setor', 'Não Classificado')).strip()
+                if not setor_r or setor_r.lower() == 'nan': setor_r = "Não Classificado"
+                dados_finais.append([r['Email'], r['Categoria'], r['Ativo'], r['Peso'], setor_r])
+                
         for nl in novas_linhas:
             dados_finais.append(nl)
             
