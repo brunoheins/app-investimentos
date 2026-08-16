@@ -11,7 +11,6 @@ from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
 @st.cache_data(ttl=86400, show_spinner=False)
 def obter_historico_benchmarks(mes_inicial, mes_final):
     """Busca o CDI, IPCA e IBOVESPA do mês inicial até o mês final, de forma segura e com fallback"""
-    # Prepara as datas no padrão que o Banco Central exige (dd/mm/yyyy)
     dt_ini_bcb = f"01/{mes_inicial[-2:]}/{mes_inicial[:4]}"
     periodo_fim = pd.to_datetime(mes_final + '-01') + pd.offsets.MonthEnd(1)
     dt_fim_bcb = periodo_fim.strftime('%d/%m/%Y')
@@ -30,7 +29,7 @@ def obter_historico_benchmarks(mes_inicial, mes_final):
         if res_cdi.status_code == 200:
             df_cdi_raw = pd.DataFrame(res_cdi.json())
             df_cdi_raw['MesAno'] = pd.to_datetime(df_cdi_raw['data'], format='%d/%m/%Y').dt.strftime('%Y-%m')
-            df_cdi_raw['valor'] = df_cdi_raw['valor'].astype(float) / 100.0 # Transforma percentual em decimal
+            df_cdi_raw['valor'] = df_cdi_raw['valor'].astype(float) / 100.0
             for _, row in df_cdi_raw.iterrows():
                 df_bench.loc[df_bench['MesAno'] == row['MesAno'], 'CDI'] = row['valor']
     except Exception as e:
@@ -51,17 +50,14 @@ def obter_historico_benchmarks(mes_inicial, mes_final):
 
     # 3. IBOVESPA (Yahoo Finance)
     try:
-        # Abre margem de 1 mês antes para o Pandas conseguir calcular o pct_change (Rendimento Mês a Mês)
         dt_ini_yf = (pd.to_datetime(f"{mes_inicial}-01") - pd.DateOffset(months=1)).strftime('%Y-%m-%d')
         dt_fim_yf = (periodo_fim + pd.DateOffset(days=5)).strftime('%Y-%m-%d')
         
         df_ibov_raw = yf.download('^BVSP', start=dt_ini_yf, end=dt_fim_yf, interval='1mo', progress=False)
         if not df_ibov_raw.empty and 'Close' in df_ibov_raw.columns:
             close_col = df_ibov_raw['Close']
-            # Se o YF retornar MultiIndex, extrai a primeira coluna
             if isinstance(close_col, pd.DataFrame): 
                 close_col = close_col.iloc[:, 0]
-            # Limpa Fuso Horário
             if close_col.index.tz is not None:
                 close_col.index = close_col.index.tz_localize(None)
                 
@@ -82,16 +78,7 @@ def render():
     st.title("📈 Evolução Real do Patrimônio")
     st.markdown("Compare o **Dinheiro Líquido do Bolso** (Aportes menos Saques) com o **Valor de Mercado**.")
 
-    # --- NOVO: MULTISELECT DE BENCHMARKS ---
-    benchmarks_selecionados = st.multiselect(
-        "🔎 Adicionar Comparador de Benchmark (Saldo Teórico):",
-        options=["CDI", "IBOVESPA", "IPCA"],
-        default=[],
-        help="Simula o que teria acontecido se todo o dinheiro que você aportou/sacou tivesse sido investido 100% nesses indicadores desde o primeiro mês."
-    )
-
     with st.spinner("Construindo linha do tempo da sua carteira e processando indicadores..."):
-        
         hoje = pd.Timestamp.today()
         
         # --- 1. LER E TRATAR CAIXA (APORTES/SAQUES) ---
@@ -112,7 +99,7 @@ def render():
         else:
             df_dep_agrupado = pd.DataFrame(columns=['MesAno', 'Valor'])
 
-        # --- 2. LER E TRATAR COMPRAS (ESTOQUE DE ATIVOS) COM FALLBACK ---
+        # --- 2. LER E TRATAR COMPRAS (ESTOQUE DE ATIVOS) ---
         df_invest = ler_planilha("Investimentos")
         if not df_invest.empty and 'Email' in df_invest.columns:
             df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
@@ -175,7 +162,7 @@ def render():
         range_meses = pd.date_range(start=f"{mes_inicial}-01", end=f"{mes_final}-01", freq='MS').strftime('%Y-%m').tolist()
         df_timeline = pd.DataFrame({'MesAno': range_meses})
         
-        # --- 4. CALCULAR CAIXA LÍQUIDO ACUMULADO E SALDO TEÓRICO DOS BENCHMARKS ---
+        # --- 4. CALCULAR CAIXA LÍQUIDO E SALDO TEÓRICO DOS BENCHMARKS ---
         dict_benchmarks = obter_historico_benchmarks(mes_inicial, mes_final)
         
         saldo_cdi = 0.0
@@ -192,13 +179,11 @@ def render():
         for mes in range_meses:
             aporte_mes = df_dep_agrupado.loc[df_dep_agrupado['MesAno'] == mes, 'Valor'].sum() if not df_dep_agrupado.empty else 0.0
             
-            # Adiciona o aporte do mês no saldo antes de renderizar os juros
             total_aportado += aporte_mes
             saldo_cdi += aporte_mes
             saldo_ibov += aporte_mes
             saldo_ipca += aporte_mes
             
-            # Aplica o rendimento do mês
             b_data = dict_benchmarks.get(mes, {'CDI': 0.0, 'IPCA': 0.0, 'IBOV': 0.0})
             saldo_cdi *= (1 + float(b_data['CDI']))
             saldo_ibov *= (1 + float(b_data['IBOV']))
@@ -224,10 +209,8 @@ def render():
                 ativo = row['Ativo']
                 if ativo not in estoque_ativos:
                     estoque_ativos[ativo] = {
-                        'qtd': 0.0, 
-                        'custo_acumulado': 0.0, 
-                        'preco_live': row['PrecoLive'], 
-                        'tem_cotacao': row['TemCotacao']
+                        'qtd': 0.0, 'custo_acumulado': 0.0, 
+                        'preco_live': row['PrecoLive'], 'tem_cotacao': row['TemCotacao']
                     }
                 
                 estoque_ativos[ativo]['qtd'] += row['Quantidade']
@@ -249,18 +232,49 @@ def render():
         df_timeline['MesExibicao'] = pd.to_datetime(df_timeline['MesAno'], format='%Y-%m').dt.strftime('%m/%Y')
         df_timeline.loc[df_timeline.index[-1], 'MesExibicao'] = "Hoje"
 
-        # --- 6. CARDS DE RESUMO ---
+        # --- 6. PAINEL DE RESUMO E BENCHMARKS (CHECKBOXES) ---
         live_aportado = df_timeline.iloc[-1]['TotalAportado']
         live_atual = df_timeline.iloc[-1]['ValorMercado']
+        
+        live_cdi = df_timeline.iloc[-1]['Valor_CDI']
+        live_ibov = df_timeline.iloc[-1]['Valor_IBOV']
+        live_ipca = df_timeline.iloc[-1]['Valor_IPCA']
         
         lucro_rs = live_atual - live_aportado
         lucro_pct = (lucro_rs / live_aportado * 100) if live_aportado > 0 else 0
 
+        # Linha 1: Os Dados da Sua Carteira
+        st.markdown("### 💼 Resumo da Carteira")
         col1, col2, col3 = st.columns(3)
         col1.metric("Dinheiro do Bolso (Líquido)", formata_br(live_aportado))
         col2.metric("Saldo Atual (Mercado)", formata_br(live_atual))
         col3.metric("Rentabilidade Real", formata_br(lucro_rs), f"{lucro_pct:+.2f}%".replace('.', ','))
         
+        # Linha 2: Os Dados Teóricos (Benchmarks interativos)
+        st.markdown("---")
+        st.markdown("### 🔎 Simulador de Benchmarks (Saldo Teórico)")
+        st.caption("E se todo o seu dinheiro tivesse sido investido nesses indicadores? Marque as opções para comparar:")
+        
+        c_b1, c_b2, c_b3 = st.columns(3)
+        
+        show_cdi = c_b1.checkbox("📈 Comparar com CDI", value=False)
+        if show_cdi:
+            lucro_cdi = live_cdi - live_aportado
+            pct_cdi = (lucro_cdi / live_aportado * 100) if live_aportado > 0 else 0
+            c_b1.metric("Teórico 100% CDI", formata_br(live_cdi), f"{pct_cdi:+.2f}%".replace('.', ','), delta_color="normal")
+            
+        show_ibov = c_b2.checkbox("📊 Comparar com IBOVESPA", value=False)
+        if show_ibov:
+            lucro_ibov = live_ibov - live_aportado
+            pct_ibov = (lucro_ibov / live_aportado * 100) if live_aportado > 0 else 0
+            c_b2.metric("Teórico IBOVESPA", formata_br(live_ibov), f"{pct_ibov:+.2f}%".replace('.', ','), delta_color="normal")
+            
+        show_ipca = c_b3.checkbox("🛒 Comparar com IPCA (Inflação)", value=False)
+        if show_ipca:
+            lucro_ipca = live_ipca - live_aportado
+            pct_ipca = (lucro_ipca / live_aportado * 100) if live_aportado > 0 else 0
+            c_b3.metric("Correção IPCA", formata_br(live_ipca), f"{pct_ipca:+.2f}%".replace('.', ','), delta_color="off")
+            
         st.markdown("---")
 
         # --- 7. GRÁFICO PLOTLY SUPER CARREGADO ---
@@ -287,8 +301,8 @@ def render():
             hovertemplate="Sua Carteira: R$ %{y:,.2f}<extra></extra>"
         ))
 
-        # --- INJEÇÃO DOS BENCHMARKS ESCOLHIDOS PELO USUÁRIO ---
-        if "CDI" in benchmarks_selecionados:
+        # --- INJEÇÃO DOS BENCHMARKS ATIVADOS NO CHECKBOX ---
+        if show_cdi:
             fig.add_trace(go.Scatter(
                 x=df_timeline['MesExibicao'], y=df_timeline['Valor_CDI'],
                 mode='lines+markers', name='Teórico 100% CDI',
@@ -296,7 +310,7 @@ def render():
                 hovertemplate="Teórico CDI: R$ %{y:,.2f}<extra></extra>"
             ))
             
-        if "IBOVESPA" in benchmarks_selecionados:
+        if show_ibov:
             fig.add_trace(go.Scatter(
                 x=df_timeline['MesExibicao'], y=df_timeline['Valor_IBOV'],
                 mode='lines+markers', name='Teórico IBOVESPA',
@@ -304,7 +318,7 @@ def render():
                 hovertemplate="Teórico IBOV: R$ %{y:,.2f}<extra></extra>"
             ))
             
-        if "IPCA" in benchmarks_selecionados:
+        if show_ipca:
             fig.add_trace(go.Scatter(
                 x=df_timeline['MesExibicao'], y=df_timeline['Valor_IPCA'],
                 mode='lines+markers', name='Correção IPCA',
