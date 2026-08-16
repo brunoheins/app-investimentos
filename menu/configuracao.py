@@ -252,8 +252,24 @@ def render():
             df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
             df_inicial = df_cat_salvo
 
-        col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
+        # Traz as colunas incluindo o Setor
+        cols_disp = ['Ativo', 'Peso']
+        if 'Setor' in df_ativos_user.columns:
+            cols_disp.append('Setor')
+            
+        df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_selecionada][cols_disp].copy()
         
+        if 'Setor' not in df_cat_salvo.columns:
+            df_cat_salvo['Setor'] = ''
+            
+        if df_cat_salvo.empty:
+            df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0], "Setor": [""]})
+        else:
+            df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
+            # Limpa o texto "Não Classificado" para mostrar a célula em branco ao usuário
+            df_cat_salvo['Setor'] = df_cat_salvo['Setor'].replace(['Não Classificado', 'nan', 'None'], '')
+            df_inicial = df_cat_salvo
+
         col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
         
         with col_tabela:
@@ -268,8 +284,8 @@ def render():
                     "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.5, format="%.2f"),
                     "Setor": st.column_config.TextColumn(
                         "Setor / Segmento", 
-                        help="Deixe como 'Não Classificado' e o sistema preencherá automaticamente ao salvar!", 
-                        default="Não Classificado"
+                        help="Deixe em branco e o sistema preencherá automaticamente ao salvar!", 
+                        default=""
                     )
                 }
             )
@@ -288,7 +304,7 @@ def render():
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     
-                    with st.spinner("Salvando e processando setores no Yahoo..."):
+                    with st.spinner("Salvando e processando setores..."):
                         if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
                             st.success(f"Ativos salvos!")
                             st.rerun()
@@ -297,10 +313,10 @@ def render():
         with col_graf_setor:
             st.markdown(f"**Exposição Setorial Alvo ({cat_selecionada})**")
             
-            # Agrupa os pesos editados por setor
             df_setores = df_editado.copy()
             df_setores['Peso (%)'] = pd.to_numeric(df_setores['Peso (%)'], errors='coerce').fillna(0)
-            df_setores['Setor'] = df_setores['Setor'].fillna('Não Classificado').apply(lambda x: 'Não Classificado' if str(x).strip() == '' else x)
+            # Para o gráfico, se estiver em branco visualmente, agrupa como "Pendente/Auto"
+            df_setores['Setor'] = df_setores['Setor'].fillna('Pendente').apply(lambda x: 'Pendente (Auto)' if str(x).strip() == '' else x)
             
             df_group_setor = df_setores.groupby('Setor')['Peso (%)'].sum().reset_index()
             df_group_setor = df_group_setor[df_group_setor['Peso (%)'] > 0]
