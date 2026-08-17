@@ -174,11 +174,12 @@ def render():
                 st.number_input("Stocks %", min_value=0.0, max_value=100.0, step=1.0, key="ex_st_val", on_change=ajusta_ex, args=('st',))
                 st.number_input("REITs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_re_val", on_change=ajusta_ex, args=('re',))
                 st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
-
+         
             st.caption("""
             **Ponto de partida:** 50% em cada | **Critério:** distância da etapa de usufruto  
-            **Orientação:** no mínimo 15% e máximo 35% tanto em ações/stocks quanto FIIs/REITs. Pelo menos 50% em ETFs Irlandês.  
-            **Usufruto:** 30% Ações, 70% FIIs, 70% REITs, 30% Stocks
+            **Orientação:** no mínimo 30% e máximo 70% tanto em ações/stocks quanto FIIs/REITs. Pelo menos 50% em ETFs Irlandês.  
+            **Usufruto:** 30% Ações, 70% FIIs | **Exterior:** 70% REITs, 20% Stocks, 10% ETFs (Migrar para ativos pagadores)
+            **Sucessão:** Preferir ETFs Irlandeses e saques mensais, para Stocks/REITs EUA há limite de isenção de US$ 60 mil.
             """)
             
             st.markdown("<br>", unsafe_allow_html=True)
