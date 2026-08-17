@@ -452,21 +452,28 @@ def render():
                     st.error("Não foi possível localizar o histórico de nenhum ativo da sua carteira.")
                     return
                 
-                df_port_prices = df_prices[port_tickers].dropna() if port_tickers else pd.DataFrame(index=[dt_ini])
+                df_port_prices = df_prices[port_tickers] if port_tickers else pd.DataFrame(index=[dt_ini])
                 
-                if df_port_prices.empty:
-                    st.error("Um dos seus ativos é recém lançado e não possui histórico suficiente. Remova-o da aba 'Ativos' para testar.")
-                    return
-                    
-                actual_start_date = df_port_prices.index.min() if port_tickers else dt_ini
+                # --- IDENTIFICA ATIVOS NOVATOS E MANTÉM O PERÍODO COMPLETO ---
+                ativos_novatos = []
+                data_limite = pd.to_datetime(dt_ini_str) + pd.DateOffset(days=30)
                 
-                meses_simulados = (hoje.year - actual_start_date.year) * 12 + (hoje.month - actual_start_date.month)
-                if actual_start_date > pd.to_datetime(dt_ini_str) + pd.DateOffset(days=30):
-                    st.warning(f"⚠️ **Atenção:** O backtest foi reduzido para **{meses_simulados} meses** (Início em {actual_start_date.strftime('%m/%Y')}) porque um ou mais ativos da sua carteira não existiam antes disso.")
-                
-                # --- CALCULA RENTABILIDADE MENSAL ---
                 if port_tickers:
-                    df_port_ret = df_port_prices.resample('ME').last().pct_change().dropna()
+                    for t in port_tickers:
+                        # Pega o primeiro dia em que o ativo teve preço
+                        primeiro_dado = df_port_prices[t].first_valid_index()
+                        if pd.notna(primeiro_dado) and primeiro_dado > data_limite:
+                            ativos_novatos.append(f"`{t}` (em {primeiro_dado.strftime('%m/%Y')})")
+                
+                if ativos_novatos:
+                    st.warning(f"⚠️ **Aviso de Histórico:** A simulação de **{anos_str}** foi mantida integralmente, mas os seguintes ativos não existiam no início: {', '.join(ativos_novatos)}. O peso deles na carteira rendeu 0% (como caixa parado) até a data de seus respectivos lançamentos.")
+
+                actual_start_date = dt_ini # Força a máquina do tempo a usar o período completo!
+                
+                # --- CALCULA RENTABILIDADE MENSAL (Preenchendo buracos com 0%) ---
+                if port_tickers:
+                    # O fillna(0) transforma os "NaN" dos anos que o ativo não existia em rentabilidade de 0,00%
+                    df_port_ret = df_port_prices.resample('ME').last().pct_change().fillna(0)
                     df_port_ret.index = df_port_ret.index.strftime('%Y-%m')
                 else:
                     df_port_ret = pd.DataFrame()
