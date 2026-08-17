@@ -374,7 +374,8 @@ def render():
 
         # --- 2. PAINEL DE CONTROLE UI ---
         st.markdown("---")
-        c_opts1, c_opts2, c_opts3, c_opts4 = st.columns(4)
+        # Alargamos levemente a última coluna para os checkboxes respirarem melhor
+        c_opts1, c_opts2, c_opts3, c_opts4 = st.columns([1, 1, 1, 1.2]) 
         
         opcoes_tempo = {"1 Ano": 1, "3 Anos": 3, "5 Anos": 5, "10 Anos": 10, "20 Anos": 20, "Máximo Possível": 30}
         anos_str = c_opts1.selectbox("⏳ Período:", list(opcoes_tempo.keys()), index=2)
@@ -383,11 +384,21 @@ def render():
         aporte_inicial = c_opts2.number_input("💵 Aporte Inicial (R$):", min_value=0.0, value=5000.0, step=1000.0)
         aporte_mensal = c_opts3.number_input("🔁 Aporte Mensal (R$):", min_value=0.0, value=1000.0, step=100.0)
         
-        benchmarks = c_opts4.multiselect(
-            "📊 Comparativos:", 
-            ["CDI", "IBOVESPA", "S&P 500 (BRL)", "IPCA"], 
-            default=["CDI", "IBOVESPA"]
-        )
+        # --- CHECKBOXES NO LUGAR DO MULTISELECT ---
+        with c_opts4:
+            st.markdown("<div style='margin-bottom: 0.3rem;'><b>📊 Comparativos:</b></div>", unsafe_allow_html=True)
+            c_sub1, c_sub2 = st.columns(2)
+            chk_cdi = c_sub1.checkbox("CDI", value=True)
+            chk_sp500 = c_sub1.checkbox("S&P 500", value=False)
+            chk_ibov = c_sub2.checkbox("IBOVESPA", value=True)
+            chk_ipca = c_sub2.checkbox("IPCA", value=False)
+            
+        # O sistema remonta a lista silenciosamente nos bastidores
+        benchmarks = []
+        if chk_cdi: benchmarks.append("CDI")
+        if chk_ibov: benchmarks.append("IBOVESPA")
+        if chk_sp500: benchmarks.append("S&P 500 (BRL)")
+        if chk_ipca: benchmarks.append("IPCA")
 
         if aporte_inicial == 0 and aporte_mensal == 0:
             st.warning("Insira um Aporte Inicial ou Aporte Mensal para realizar a simulação.")
