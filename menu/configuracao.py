@@ -407,11 +407,31 @@ def render():
                 if "IBOVESPA" in benchmarks: tickers_download.append('^BVSP')
                 if "S&P 500 (BRL)" in benchmarks: 
                     tickers_download.extend(['^GSPC', 'BRL=X'])
+
+                # Puxa Cotações Ajustadas (Reinveste Dividendos automaticamente!)
+                tickers_list = list(set(tickers_download))
+                df_raw = yf.download(tickers_list, start=dt_ini_str, end=dt_fim_str, progress=False, ignore_tz=True)
                 
-                df_prices = yf.download(list(set(tickers_download)), start=dt_ini_str, end=dt_fim_str, progress=False, ignore_tz=True)['Adj Close']
+                if df_raw.empty:
+                    st.error("Não foi possível buscar o histórico de preços. Tente novamente.")
+                    return
                 
+                # MÁGICA ANTI-QUEBRA: O Yahoo inverteu a ordem das colunas no MultiIndex recentemente. 
+                # Esse código caça o 'Adj Close' não importa onde ele esteja escondido.
+                if isinstance(df_raw.columns, pd.MultiIndex):
+                    if 'Adj Close' in df_raw.columns.get_level_values(0):
+                        df_prices = df_raw['Adj Close']
+                    elif 'Adj Close' in df_raw.columns.get_level_values(1):
+                        df_prices = df_raw.xs('Adj Close', axis=1, level=1)
+                    else:
+                        df_prices = df_raw.xs('Close', axis=1, level=1) # Fallback
+                else:
+                    # Quando é só 1 ticker, ele não traz MultiIndex
+                    col_price = 'Adj Close' if 'Adj Close' in df_raw.columns else 'Close'
+                    df_prices = df_raw[[col_price]].rename(columns={col_price: tickers_list[0]})
+                    
                 if isinstance(df_prices, pd.Series):
-                    df_prices = df_prices.to_frame(name=tickers_download[0])
+                    df_prices = df_prices.to_frame(name=tickers_list[0])
                 
                 port_tickers = [t for t in ativos_alvo.keys() if t in df_prices.columns]
                 
