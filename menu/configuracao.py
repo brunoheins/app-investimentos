@@ -1,12 +1,37 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils import ler_planilha, salvar_configuracao, salvar_ativos_categoria
+import plotly.graph_objects as go
+import yfinance as yf
+import requests
+from dateutil.relativedelta import relativedelta
+import re
+import datetime
+from utils import ler_planilha, salvar_configuracao, salvar_ativos_categoria, formata_br
+
+# ==========================================
+# CÉREBRO DE DADOS DO BACKTEST (BCB)
+# ==========================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_bcb_history(codigo, dt_ini, dt_fim):
+    """Busca dados históricos do Banco Central para o Backtest (SGS 4391=CDI, 433=IPCA)"""
+    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=json&dataInicial={dt_ini.strftime('%d/%m/%Y')}&dataFinal={dt_fim.strftime('%d/%m/%Y')}"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            df = pd.DataFrame(res.json())
+            df['Date'] = pd.to_datetime(df['data'], format='%d/%m/%Y')
+            df.set_index('Date', inplace=True)
+            df['valor'] = df['valor'].astype(float) / 100.0
+            return df[['valor']]
+    except:
+        pass
+    return pd.DataFrame()
+
 
 def render():
     st.title("⚙️ Central de Configuração da Carteira")
     
-    # COFRE: Salva estado das metas de alocação
     if 'backup_macro' not in st.session_state:
         df_conf = ler_planilha("Configuracao")
         user_conf = {}
@@ -29,7 +54,7 @@ def render():
         }
 
     # ==========================================
-    # NOVO SISTEMA DE ABAS PRINCIPAL
+    # SISTEMA DE ABAS TRIPLO
     # ==========================================
     if 'aba_config' not in st.session_state:
         st.session_state.aba_config = "Metas"
@@ -38,31 +63,37 @@ def render():
         st.session_state.aba_config = nova_aba
 
     st.markdown("<br>", unsafe_allow_html=True)
-    c_aba1, c_aba2 = st.columns(2)
+    c_aba1, c_aba2, c_aba3 = st.columns(3)
     
     c_aba1.button(
-        "🎯 Metas de Alocação", 
+        "🎯 1. Metas de Alocação", 
         use_container_width=True, 
         on_click=mudar_aba_config, args=("Metas",),
         type="primary" if st.session_state.aba_config == "Metas" else "secondary"
     )
 
     c_aba2.button(
-        "📋 Ativos e Pesos por Categoria", 
+        "📋 2. Ativos e Setores", 
         use_container_width=True, 
         on_click=mudar_aba_config, args=("Ativos",),
         type="primary" if st.session_state.aba_config == "Ativos" else "secondary"
     )
     
+    c_aba3.button(
+        "⏪ 3. Backtesting", 
+        use_container_width=True, 
+        on_click=mudar_aba_config, args=("Backtest",),
+        type="primary" if st.session_state.aba_config == "Backtest" else "secondary"
+    )
+    
     st.markdown("---")
 
     # ==========================================
-    # 1. METAS DE ALOCAÇÃO
+    # ABA 1: METAS DE ALOCAÇÃO
     # ==========================================
     if st.session_state.aba_config == "Metas":
         st.markdown("Ajuste seus percentuais macro. O sistema compensa automaticamente para a soma sempre cravar **100%**.")
 
-        # RESTAURA VALORES DO COFRE
         if 'rf_val' not in st.session_state:
             st.session_state.rf_val = st.session_state.backup_macro['rf']
             st.session_state.rv_val = st.session_state.backup_macro['rv']
@@ -110,25 +141,14 @@ def render():
             c1, c2 = st.columns(2)
             c1.number_input("Renda Fixa (RF) %", min_value=0.0, max_value=100.0, step=1.0, key="rf_val", on_change=ajusta_macro, args=('rf',))
             c2.number_input("Renda Variável (RV) %", min_value=0.0, max_value=100.0, step=1.0, key="rv_val", on_change=ajusta_macro, args=('rv',))
-
-            st.caption("""
-            **Ponto de partida:** 50% em cada | **Critério:** quanto consegue ter de volatilidade sem se incomodar  
-            **Orientação:** mínimo 20% em renda fixa | **Usufruto:** 50% RF e 50% RV
-            """)
-            
             st.markdown("---")
+            
             st.subheader("Nível 2: Renda Variável")
             c3, c4 = st.columns(2)
             c3.number_input("Brasil %", min_value=0.0, max_value=100.0, step=1.0, key="rv_br_val", on_change=ajusta_rv, args=('br',))
             c4.number_input("Exterior %", min_value=0.0, max_value=100.0, step=1.0, key="rv_ex_val", on_change=ajusta_rv, args=('ex',))
-
-            st.caption("""
-            **Ponto de partida:** 70% Brasil e 30% EUA | **Critério:** distância da etapa de usufruto  
-            **Orientação:** mínimo 20% e máximo 50% nos EUA (Preferência ETF domiciliado na Irlanda de Acumulação)  
-            **Usufruto:** 80% Brasil e 20% Global
-            """)
-            
             st.markdown("---")
+            
             c_b1, c_b2 = st.columns(2)
             with c_b1:
                 st.subheader("Nível 3A: Brasil")
@@ -141,12 +161,6 @@ def render():
                 st.number_input("REITs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_re_val", on_change=ajusta_ex, args=('re',))
                 st.number_input("ETFs %", min_value=0.0, max_value=100.0, step=1.0, key="ex_et_val", on_change=ajusta_ex, args=('et',))
 
-            st.caption("""
-            **Ponto de partida:** 50% em cada | **Critério:** distância da etapa de usufruto  
-            **Orientação:** no mínimo 15% e máximo 35% tanto em ações/stocks quanto FIIs/REITs. Pelo menos 50% em ETFs Irlandês.  
-            **Usufruto:** 30% Ações, 70% FIIs, 70% REITs, 30% Stocks
-            """)
-            
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
                 dados_para_salvar = {
@@ -197,13 +211,12 @@ def render():
         })
 
     # ==========================================
-    # 2. ATIVOS E PESOS POR CATEGORIA
+    # ABA 2: ATIVOS E SETORES
     # ==========================================
     elif st.session_state.aba_config == "Ativos":
         st.subheader("📋 Composição de Ativos por Categoria")
-        st.markdown("Adicione os ativos (tickers) e defina a porcentagem interna de cada um. **A soma de cada categoria deve fechar exatamente 100%.**")
+        st.markdown("Adicione os ativos (tickers) e defina a porcentagem interna de cada um. A soma de cada categoria deve fechar exatamente 100%.")
 
-        # Submenu dinâmico (Botões ao invés de pills)
         if 'cat_config' not in st.session_state:
             st.session_state.cat_config = "Ações"
 
@@ -211,15 +224,12 @@ def render():
             st.session_state.cat_config = nova_cat
 
         st.markdown("<br>", unsafe_allow_html=True)
-        #categorias = ["Ações", "FIIs", "Stocks", "REITs", "ETFs", "Renda Fixa"]
         categorias = ["Ações", "FIIs", "Stocks", "REITs", "ETFs"]
         cols_cat = st.columns(len(categorias))
         
         for i, cat in enumerate(categorias):
             cols_cat[i].button(
-                cat,
-                use_container_width=True,
-                on_click=mudar_cat_config, args=(cat,),
+                cat, use_container_width=True, on_click=mudar_cat_config, args=(cat,),
                 type="primary" if st.session_state.cat_config == cat else "secondary",
                 key=f"btn_nav_{cat}"
             )
@@ -236,23 +246,6 @@ def render():
         else:
             df_ativos_user = pd.DataFrame(columns=['Email', 'Categoria', 'Ativo', 'Peso'])
 
-        # Traz as colunas incluindo o Setor
-        cols_disp = ['Ativo', 'Peso']
-        if 'Setor' in df_ativos_user.columns:
-            cols_disp.append('Setor')
-            
-        df_cat_salvo = df_ativos_user[df_ativos_user['Categoria'] == cat_selecionada][cols_disp].copy()
-        
-        if 'Setor' not in df_cat_salvo.columns:
-            df_cat_salvo['Setor'] = 'Não Classificado'
-            
-        if df_cat_salvo.empty:
-            df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0], "Setor": ["Não Classificado"]})
-        else:
-            df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
-            df_inicial = df_cat_salvo
-
-        # Traz as colunas incluindo o Setor
         cols_disp = ['Ativo', 'Peso']
         if 'Setor' in df_ativos_user.columns:
             cols_disp.append('Setor')
@@ -266,7 +259,6 @@ def render():
             df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0], "Setor": [""]})
         else:
             df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
-            # Limpa o texto "Não Classificado" para mostrar a célula em branco ao usuário
             df_cat_salvo['Setor'] = df_cat_salvo['Setor'].replace(['Não Classificado', 'nan', 'None'], '')
             df_inicial = df_cat_salvo
 
@@ -309,13 +301,10 @@ def render():
                             st.success(f"Ativos salvos!")
                             st.rerun()
 
-        # Desenha o gráfico de pizza do setor ao lado
         with col_graf_setor:
             st.markdown(f"**Exposição Setorial Alvo ({cat_selecionada})**")
-            
             df_setores = df_editado.copy()
             df_setores['Peso (%)'] = pd.to_numeric(df_setores['Peso (%)'], errors='coerce').fillna(0)
-            # Para o gráfico, se estiver em branco visualmente, agrupa como "Pendente/Auto"
             df_setores['Setor'] = df_setores['Setor'].fillna('Pendente').apply(lambda x: 'Pendente (Auto)' if str(x).strip() == '' else x)
             
             df_group_setor = df_setores.groupby('Setor')['Peso (%)'].sum().reset_index()
@@ -328,3 +317,261 @@ def render():
                 st.plotly_chart(fig_setores, use_container_width=True)
             else:
                 st.info("Preencha a tabela para ver a distribuição.")
+
+
+    # ==========================================
+    # ABA 3: BACKTESTING DE ESTRATÉGIA COM APORTES MENSAIS
+    # ==========================================
+    elif st.session_state.aba_config == "Backtest":
+        st.subheader("⏪ Máquina do Tempo (Backtesting DCA)")
+        st.markdown("Descubra como a sua **configuração de pesos atual** teria performado no passado com **aportes regulares**.")
+
+        # --- 1. LÊ A CARTEIRA CONFIGURADA ---
+        user_conf = st.session_state.backup_macro
+        peso_rv = user_conf['rv'] / 100.0
+        peso_br = user_conf['rv_br'] / 100.0
+        peso_ex = user_conf['rv_ex'] / 100.0
+
+        cat_targets = {
+            "Ações": peso_rv * peso_br * (user_conf['br_ac'] / 100.0),
+            "FIIs": peso_rv * peso_br * (user_conf['br_fii'] / 100.0),
+            "Stocks": peso_rv * peso_ex * (user_conf['ex_st'] / 100.0),
+            "REITs": peso_rv * peso_ex * (user_conf['ex_re'] / 100.0),
+            "ETFs": peso_rv * peso_ex * (user_conf['ex_et'] / 100.0),
+        }
+        
+        peso_rf_global = user_conf['rf'] / 100.0
+
+        df_ativos_existentes = ler_planilha("Ativos_Config")
+        ativos_alvo = {}
+        
+        if not df_ativos_existentes.empty and 'Email' in df_ativos_existentes.columns:
+            df_ativos_existentes['Email'] = df_ativos_existentes['Email'].astype(str).str.strip().str.lower()
+            df_ativos_user = df_ativos_existentes[df_ativos_existentes['Email'] == st.session_state.email]
+            
+            for _, row in df_ativos_user.iterrows():
+                cat = str(row.get('Categoria', '')).strip()
+                ativo = str(row.get('Ativo', '')).strip().upper()
+                peso_interno = float(row.get('Peso', 0)) / 100.0
+                
+                peso_global = cat_targets.get(cat, 0) * peso_interno
+                if peso_global > 0 and ativo and ativo != "NAN":
+                    ticker = ativo
+                    if cat in ["Ações", "FIIs"]:
+                        if "." not in ticker and re.search(r'\d+$', ticker):
+                            ticker = f"{ticker}.SA"
+                    ativos_alvo[ticker] = peso_global
+                    
+        total_w = sum(ativos_alvo.values()) + peso_rf_global
+        if total_w > 0:
+            ativos_alvo = {k: v / total_w for k, v in ativos_alvo.items()}
+            peso_rf_global = peso_rf_global / total_w
+
+        if len(ativos_alvo) == 0 and peso_rf_global == 0:
+            st.warning("⚠️ Você precisa preencher as abas 'Metas' e 'Ativos' antes de rodar o Backtest.")
+            return
+
+        # --- 2. PAINEL DE CONTROLE UI ---
+        st.markdown("---")
+        c_opts1, c_opts2, c_opts3, c_opts4 = st.columns(4)
+        
+        opcoes_tempo = {"1 Ano": 1, "3 Anos": 3, "5 Anos": 5, "10 Anos": 10, "20 Anos": 20, "Máximo Possível": 30}
+        anos_str = c_opts1.selectbox("⏳ Período:", list(opcoes_tempo.keys()), index=2)
+        anos_int = opcoes_tempo[anos_str]
+        
+        aporte_inicial = c_opts2.number_input("💵 Aporte Inicial (R$):", min_value=0.0, value=5000.0, step=1000.0)
+        aporte_mensal = c_opts3.number_input("🔁 Aporte Mensal (R$):", min_value=0.0, value=1000.0, step=100.0)
+        
+        benchmarks = c_opts4.multiselect(
+            "📊 Comparativos:", 
+            ["CDI", "IBOVESPA", "S&P 500 (BRL)", "IPCA"], 
+            default=["CDI", "IBOVESPA"]
+        )
+
+        if aporte_inicial == 0 and aporte_mensal == 0:
+            st.warning("Insira um Aporte Inicial ou Aporte Mensal para realizar a simulação.")
+            return
+
+        # --- 3. MOTOR DE EXECUÇÃO ---
+        if st.button("🚀 Rodar Backtest da Carteira", use_container_width=True, type="primary"):
+            with st.spinner(f"Viajando no tempo e investindo todos os meses por {anos_str}..."):
+                
+                hoje = datetime.datetime.today()
+                dt_ini = hoje - relativedelta(years=anos_int)
+                dt_fim = hoje
+                
+                dt_ini_str = dt_ini.strftime('%Y-%m-%d')
+                dt_fim_str = dt_fim.strftime('%Y-%m-%d')
+                
+                tickers_download = list(ativos_alvo.keys())
+                if "IBOVESPA" in benchmarks: tickers_download.append('^BVSP')
+                if "S&P 500 (BRL)" in benchmarks: 
+                    tickers_download.extend(['^GSPC', 'BRL=X'])
+                
+                df_prices = yf.download(list(set(tickers_download)), start=dt_ini_str, end=dt_fim_str, progress=False, ignore_tz=True)['Adj Close']
+                
+                if isinstance(df_prices, pd.Series):
+                    df_prices = df_prices.to_frame(name=tickers_download[0])
+                
+                port_tickers = [t for t in ativos_alvo.keys() if t in df_prices.columns]
+                
+                if len(port_tickers) == 0 and peso_rf_global == 0:
+                    st.error("Não foi possível localizar o histórico de nenhum ativo da sua carteira.")
+                    return
+                
+                df_port_prices = df_prices[port_tickers].dropna() if port_tickers else pd.DataFrame(index=[dt_ini])
+                
+                if df_port_prices.empty:
+                    st.error("Um dos seus ativos é recém lançado e não possui histórico suficiente. Remova-o da aba 'Ativos' para testar.")
+                    return
+                    
+                actual_start_date = df_port_prices.index.min() if port_tickers else dt_ini
+                
+                meses_simulados = (hoje.year - actual_start_date.year) * 12 + (hoje.month - actual_start_date.month)
+                if actual_start_date > pd.to_datetime(dt_ini_str) + pd.DateOffset(days=30):
+                    st.warning(f"⚠️ **Atenção:** O backtest foi reduzido para **{meses_simulados} meses** (Início em {actual_start_date.strftime('%m/%Y')}) porque um ou mais ativos da sua carteira não existiam antes disso.")
+                
+                # --- CALCULA RENTABILIDADE MENSAL ---
+                if port_tickers:
+                    df_port_ret = df_port_prices.resample('ME').last().pct_change().dropna()
+                    df_port_ret.index = df_port_ret.index.strftime('%Y-%m')
+                else:
+                    df_port_ret = pd.DataFrame()
+                
+                df_cdi = fetch_bcb_history(4391, actual_start_date - pd.DateOffset(months=1), dt_fim)
+                if not df_cdi.empty:
+                    df_cdi.index = df_cdi.index.strftime('%Y-%m')
+                    df_cdi.rename(columns={'valor': 'CDI'}, inplace=True)
+                
+                df_ipca = pd.DataFrame()
+                if "IPCA" in benchmarks:
+                    df_ipca = fetch_bcb_history(433, actual_start_date - pd.DateOffset(months=1), dt_fim)
+                    if not df_ipca.empty:
+                        df_ipca.index = df_ipca.index.strftime('%Y-%m')
+                        df_ipca.rename(columns={'valor': 'IPCA'}, inplace=True)
+                
+                df_merged = df_port_ret.join(df_cdi, how='outer')
+                if not df_ipca.empty:
+                    df_merged = df_merged.join(df_ipca, how='outer')
+                    
+                df_merged = df_merged.fillna(0)
+                
+                # Consolida o retorno da Carteira do Usuário
+                port_returns = pd.Series(0.0, index=df_merged.index)
+                for t in port_tickers:
+                    port_returns += df_merged[t] * ativos_alvo[t]
+                if peso_rf_global > 0 and 'CDI' in df_merged.columns:
+                    port_returns += df_merged['CDI'] * peso_rf_global
+                df_merged['Sua Carteira'] = port_returns
+                
+                colunas_acumular = ['Sua Carteira']
+                
+                if "CDI" in benchmarks and 'CDI' in df_merged.columns:
+                    colunas_acumular.append('CDI')
+                if "IPCA" in benchmarks and 'IPCA' in df_merged.columns:
+                    colunas_acumular.append('IPCA')
+                if "IBOVESPA" in benchmarks and '^BVSP' in df_prices.columns:
+                    ibov_ret = df_prices['^BVSP'].resample('ME').last().pct_change().dropna()
+                    ibov_ret.index = ibov_ret.index.strftime('%Y-%m')
+                    df_merged = df_merged.join(ibov_ret.rename('IBOV'), how='left').fillna(0)
+                    colunas_acumular.append('IBOV')
+                if "S&P 500 (BRL)" in benchmarks and '^GSPC' in df_prices.columns and 'BRL=X' in df_prices.columns:
+                    sp_brl = df_prices['^GSPC'] * df_prices['BRL=X']
+                    sp_ret = sp_brl.resample('ME').last().pct_change().dropna()
+                    sp_ret.index = sp_ret.index.strftime('%Y-%m')
+                    df_merged = df_merged.join(sp_ret.rename('SP500_BRL'), how='left').fillna(0)
+                    colunas_acumular.append('SP500_BRL')
+
+                # Se a primeira linha não teve retorno preenchido, limpa
+                if df_merged.iloc[0].sum() == 0:
+                    df_merged = df_merged.iloc[1:]
+
+                # --- LOOP DE JUROS COMPOSTOS COM APORTE MENSAL ---
+                df_cum = pd.DataFrame(index=df_merged.index, columns=colunas_acumular)
+                linha_custo = []
+                
+                saldos = {c: aporte_inicial for c in colunas_acumular}
+                total_bolso = aporte_inicial
+                
+                for idx, row in df_merged.iterrows():
+                    # 1. Aplica o rendimento do mês no saldo que já estava na conta
+                    for c in colunas_acumular:
+                        saldos[c] = saldos[c] * (1 + row.get(c, 0.0))
+                        # 2. Adiciona o Aporte Mensal novo
+                        saldos[c] += aporte_mensal
+                        df_cum.loc[idx, c] = saldos[c]
+                        
+                    total_bolso += aporte_mensal
+                    linha_custo.append(total_bolso)
+                        
+                df_cum['Total_Investido'] = linha_custo
+
+                # Insere o "Mês Zero" no gráfico para o traçado nascer do aporte inicial
+                try:
+                    mes_zero = (pd.to_datetime(df_cum.index[0] + '-01') - pd.DateOffset(months=1)).strftime('%Y-%m')
+                    linha_zero = {c: aporte_inicial for c in colunas_acumular}
+                    linha_zero['Total_Investido'] = aporte_inicial
+                    df_cum.loc[mes_zero] = linha_zero
+                    df_cum = df_cum.sort_index()
+                except:
+                    pass
+
+                # --- 4. EXIBIÇÃO DE RESULTADOS ---
+                st.markdown("### 🏆 Resultado da Simulação")
+                
+                val_final_port = df_cum['Sua Carteira'].iloc[-1]
+                custo_final = df_cum['Total_Investido'].iloc[-1]
+                lucro_rs = val_final_port - custo_final
+                lucro_pct = (lucro_rs / custo_final) * 100 if custo_final > 0 else 0
+                
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                kpi1.metric("Total Investido", formata_br(custo_final))
+                kpi2.metric("Valor Final da Carteira", formata_br(val_final_port))
+                kpi3.metric("Lucro Limpo (R$)", formata_br(lucro_rs))
+                kpi4.metric("Rentabilidade da Carteira", f"+{lucro_pct:.2f}%".replace('.', ','), delta_color="normal")
+
+                st.markdown("---")
+                
+                # --- PLOTA O GRÁFICO ---
+                fig = go.Figure()
+
+                # A Reta do Dinheiro Suado
+                fig.add_trace(go.Scatter(
+                    x=df_cum.index, y=df_cum['Total_Investido'],
+                    mode='lines', name='Seu Dinheiro Investido',
+                    line=dict(color='#8c92ac', width=3, dash='dot'),
+                    fill='tozeroy', fillcolor='rgba(140, 146, 172, 0.1)',
+                    hovertemplate="Investido (Bolso): R$ %{y:,.2f}<extra></extra>"
+                ))
+
+                # A Curva da Carteira
+                fig.add_trace(go.Scatter(
+                    x=df_cum.index, y=df_cum['Sua Carteira'],
+                    mode='lines', name='Sua Carteira',
+                    line=dict(color='#00cc96', width=4),
+                    hovertemplate="Sua Carteira: R$ %{y:,.2f}<extra></extra>"
+                ))
+
+                dic_cores = {'CDI': '#ffbf00', 'IBOV': '#33b5e5', 'SP500_BRL': '#ff4444', 'IPCA': '#9933cc'}
+                dic_nomes = {'CDI': 'Teórico CDI', 'IBOV': 'Teórico IBOVESPA', 'SP500_BRL': 'Teórico S&P 500 (BRL)', 'IPCA': 'Correção IPCA'}
+                
+                for col in colunas_acumular:
+                    if col != 'Sua Carteira':
+                        fig.add_trace(go.Scatter(
+                            x=df_cum.index, y=df_cum[col],
+                            mode='lines', name=dic_nomes.get(col, col),
+                            line=dict(color=dic_cores.get(col, '#ffffff'), width=2, dash='dash'),
+                            hovertemplate=dic_nomes.get(col, col) + ": R$ %{y:,.2f}<extra></extra>"
+                        ))
+
+                fig.update_layout(
+                    height=500, 
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    hovermode="x unified", 
+                    xaxis=dict(showgrid=False), 
+                    yaxis=dict(tickformat=",.2f")
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption("Nota: Este backtest adota a premissa de que você comprou frações exatas e fez o rebalanceamento invisível perfeito todos os meses seguindo sua alocação macro e micro atual.")
