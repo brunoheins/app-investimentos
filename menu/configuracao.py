@@ -32,6 +32,7 @@ def fetch_bcb_history(codigo, dt_ini, dt_fim):
 def render():
     st.title("⚙️ Central de Configuração da Carteira")
     
+    # COFRE: Salva estado das metas de alocação
     if 'backup_macro' not in st.session_state:
         df_conf = ler_planilha("Configuracao")
         user_conf = {}
@@ -407,30 +408,42 @@ def render():
                 if "IBOVESPA" in benchmarks: tickers_download.append('^BVSP')
                 if "S&P 500 (BRL)" in benchmarks: 
                     tickers_download.extend(['^GSPC', 'BRL=X'])
-
-                # Puxa Cotações Ajustadas (Reinveste Dividendos automaticamente!)
+                
+                # Puxa Cotações (Tratamento Anti-Quebra YFinance Definitivo)
                 tickers_list = list(set(tickers_download))
                 df_raw = yf.download(tickers_list, start=dt_ini_str, end=dt_fim_str, progress=False, ignore_tz=True)
                 
                 if df_raw.empty:
-                    st.error("Não foi possível buscar o histórico de preços. Tente novamente.")
+                    st.error("Não foi possível buscar o histórico de preços. O servidor do Yahoo Finance pode estar instável.")
                     return
                 
-                # MÁGICA ANTI-QUEBRA: O Yahoo inverteu a ordem das colunas no MultiIndex recentemente. 
-                # Esse código caça o 'Adj Close' não importa onde ele esteja escondido.
+                # MÁGICA ANTI-QUEBRA DEFINITIVA: Checa todos os níveis e possibilidades
                 if isinstance(df_raw.columns, pd.MultiIndex):
-                    if 'Adj Close' in df_raw.columns.get_level_values(0):
-                        df_prices = df_raw['Adj Close']
-                    elif 'Adj Close' in df_raw.columns.get_level_values(1):
-                        df_prices = df_raw.xs('Adj Close', axis=1, level=1)
-                    else:
-                        df_prices = df_raw.xs('Close', axis=1, level=1) # Fallback
-                else:
-                    # Quando é só 1 ticker, ele não traz MultiIndex
-                    col_price = 'Adj Close' if 'Adj Close' in df_raw.columns else 'Close'
-                    df_prices = df_raw[[col_price]].rename(columns={col_price: tickers_list[0]})
+                    lvl_0 = df_raw.columns.get_level_values(0)
+                    lvl_1 = df_raw.columns.get_level_values(1)
                     
+                    if 'Adj Close' in lvl_0:
+                        df_prices = df_raw['Adj Close']
+                    elif 'Close' in lvl_0:
+                        df_prices = df_raw['Close']
+                    elif 'Adj Close' in lvl_1:
+                        df_prices = df_raw.xs('Adj Close', axis=1, level=1)
+                    elif 'Close' in lvl_1:
+                        df_prices = df_raw.xs('Close', axis=1, level=1)
+                    else:
+                        st.error("Não encontramos a coluna de Fechamento nos dados do Yahoo Finance.")
+                        return
+                else:
+                    col_target = 'Adj Close' if 'Adj Close' in df_raw.columns else 'Close'
+                    if col_target in df_raw.columns:
+                        df_prices = df_raw[[col_target]].copy()
+                        df_prices.columns = [tickers_list[0]]
+                    else:
+                        df_prices = df_raw.iloc[:, [0]].copy()
+                        df_prices.columns = [tickers_list[0]]
+                        
                 if isinstance(df_prices, pd.Series):
+                    # Se for apenas 1 ticker, o pandas retorna Series. Garantimos que vire DataFrame com o nome da Ação.
                     df_prices = df_prices.to_frame(name=tickers_list[0])
                 
                 port_tickers = [t for t in ativos_alvo.keys() if t in df_prices.columns]
