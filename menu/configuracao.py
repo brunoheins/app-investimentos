@@ -471,20 +471,18 @@ def render():
                 
                 if port_tickers:
                     for t in port_tickers:
-                        # Pega o primeiro dia em que o ativo teve preço
                         primeiro_dado = df_port_prices[t].first_valid_index()
                         if pd.notna(primeiro_dado) and primeiro_dado > data_limite:
-                            ativos_novatos.append(f"`{t}` (em {primeiro_dado.strftime('%m/%Y')})")
+                            ativos_novatos.append(f"`{t}` ({primeiro_dado.strftime('%m/%Y')})")
                 
                 if ativos_novatos:
-                    st.warning(f"⚠️ **Aviso de Histórico:** A simulação de **{anos_str}** foi mantida integralmente, mas os seguintes ativos não existiam no início: {', '.join(ativos_novatos)}. O peso deles na carteira rendeu 0% (como caixa parado) até a data de seus respectivos lançamentos.")
+                    st.info(f"💡 **Caixa Inteligente:** A simulação de **{anos_str}** foi mantida intacta! Como os ativos a seguir não existiam no início, o sistema simulou o peso deles rendendo 100% do CDI até o dia do lançamento: {', '.join(ativos_novatos)}.")
 
                 actual_start_date = dt_ini # Força a máquina do tempo a usar o período completo!
                 
-                # --- CALCULA RENTABILIDADE MENSAL (Preenchendo buracos com 0%) ---
+                # --- CALCULA RENTABILIDADE MENSAL BASE (Sem preencher com zero ainda) ---
                 if port_tickers:
-                    # O fillna(0) transforma os "NaN" dos anos que o ativo não existia em rentabilidade de 0,00%
-                    df_port_ret = df_port_prices.resample('ME').last().pct_change().fillna(0)
+                    df_port_ret = df_port_prices.resample('ME').last().pct_change()
                     df_port_ret.index = df_port_ret.index.strftime('%Y-%m')
                 else:
                     df_port_ret = pd.DataFrame()
@@ -505,6 +503,13 @@ def render():
                 if not df_ipca.empty:
                     df_merged = df_merged.join(df_ipca, how='outer')
                     
+                # --- MÁGICA DO CAIXA (CDI) PARA ATIVOS NOVATOS ---
+                # Se o ativo não tinha cotação no mês (NaN), ele assume o rendimento do CDI!
+                if 'CDI' in df_merged.columns:
+                    for t in port_tickers:
+                        df_merged[t] = df_merged[t].fillna(df_merged['CDI'])
+                
+                # Tapa qualquer outro buraco residual (ex: atraso na API) com 0
                 df_merged = df_merged.fillna(0)
                 
                 # Consolida o retorno da Carteira do Usuário
