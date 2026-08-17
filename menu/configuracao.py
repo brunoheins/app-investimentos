@@ -317,10 +317,36 @@ def render():
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     
-                    with st.spinner("Salvando e processando setores..."):
-                        if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
-                            st.success(f"Ativos salvos!")
-                            st.rerun()
+                    with st.spinner("Validando ativos na Bolsa..."):
+                        import yfinance as yf
+                        import re
+                        
+                        ativos_invalidos = []
+                        if cat_selecionada != "Renda Fixa":
+                            for ativo in df_para_salvar['Ativo']:
+                                ativo_str = str(ativo).strip().upper()
+                                if not ativo_str or ativo_str == 'NAN':
+                                    continue
+                                    
+                                ticker = ativo_str
+                                # Normaliza para a B3 antes de checar
+                                if cat_selecionada in ["Ações", "FIIs"]:
+                                    if "." not in ticker and re.search(r'\d+$', ticker):
+                                        ticker = f"{ticker}.SA"
+                                
+                                try:
+                                    # Puxar 1 dia de histórico é o teste mais rápido e confiável do Yahoo
+                                    if yf.Ticker(ticker).history(period="1d").empty:
+                                        ativos_invalidos.append(ativo_str)
+                                except:
+                                    ativos_invalidos.append(ativo_str)
+                                    
+                        if ativos_invalidos:
+                            st.error(f"❌ **Ativo(s) Inválido(s):** Não encontramos `{', '.join(ativos_invalidos)}` no Yahoo Finance. Verifique se o código está correto antes de salvar.")
+                        else:
+                            if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
+                                st.success("Todos os ativos validados e salvos!")
+                                st.rerun()
 
         with col_graf_setor:
             st.markdown(f"**Exposição Setorial Alvo ({cat_selecionada})**")
