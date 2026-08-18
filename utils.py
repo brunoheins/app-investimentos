@@ -260,17 +260,18 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         return False
 
 # ==========================================
-# COTAÇÕES EM TEMPO REAL (YFINANCE + TESOURO)
+# COTAÇÕES EM TEMPO REAL (YFINANCE + TESOURO + CÂMBIO)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def obter_cotacoes():
     """
-    Busca os preços em tempo real usando Python, ignorando as fórmulas do Google Sheets.
-    Usa 'requests' para Tesouro Direto e 'yfinance' para Ações/FIIs/Stocks.
+    Busca os preços em tempo real usando Python.
+    Converte automaticamente ativos internacionais (EUA) para Reais (BRL).
     """
     import yfinance as yf
     import requests
     import re
+    import pandas as pd
     
     cotacoes = {}
     ativos_buscados = set()
@@ -349,51 +350,96 @@ def obter_cotacoes():
             except Exception as e2:
                 print(f"Aviso: Falha ao carregar Tesouro: {e2}")
 
-        # APLICAR COTAÇÕES DO TESOURO SOBRE A TRAVA DE SEGURANÇA
         mapa_ativos = {" ".join(a.upper().split()): a for a in ativos_buscados}
         ativos_ja_encontrados = set()
         
         for titulo in titulos_tesouro:
             nome = titulo["nome"]
             valor = titulo["valor"]
-            
             if nome in mapa_ativos:
                 nome_original = mapa_ativos[nome]
-                # AQUI É A MÁGICA: Ele SOBRESCREVE o preço médio de segurança pelo preço Real Oficial!
+                # SOBRESCREVE o preço médio de segurança pelo preço Real Oficial do TD!
                 cotacoes[nome_original] = valor
                 ativos_ja_encontrados.add(nome_original)
                 
-        # Remove os ativos encontrados da fila de busca para não mandar o Tesouro pro Yahoo Finance
+        # Remove os ativos encontrados da fila de busca para não mandar Tesouro pro Yahoo
         ativos_buscados = ativos_buscados - ativos_ja_encontrados
 
-        # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE ---
+        # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE COM CONVERSÃO DE CÂMBIO ---
         if ativos_buscados:
             tickers_yf = []
             mapa_tickers = {}
+            tem_exterior = False
             
             for ativo in ativos_buscados:
                 ticker = ativo
+                
+                # Normaliza tickers brasileiros
                 if "." not in ticker and re.search(r'\d+$', ticker):
                     ticker = f"{ticker}.SA"
                 
+                # Detecta se é exterior (Não tem .SA no final)
+                if not ticker.endswith(".SA"):
+                    tem_exterior = True
+                    
                 tickers_yf.append(ticker)
                 mapa_tickers[ticker] = ativo 
 
+            # Injeta a busca pelo Dólar se houver ativo estrangeiro
+            if tem_exterior:
+                tickers_yf.append("BRL=X")
+
             try:
-                dados_yf = yf.download(tickers_yf, period="1d", progress=False)
+                # Traz os dados usando blindagem anti-quebra (MultiIndex do YFinance)
+                df_raw = yf.download(list(set(tickers_yf)), period="1d", progress=False, ignore_tz=True)
                 
-                if not dados_yf.empty and 'Close' in dados_yf:
-                    if len(tickers_yf) == 1:
-                        preco = float(dados_yf['Close'].iloc[-1])
-                        if pd.notna(preco):
-                            cotacoes[mapa_tickers[tickers_yf[0]]] = preco
+                if not df_raw.empty:
+                    if isinstance(df_raw.columns, pd.MultiIndex):
+                        lvl_0 = df_raw.columns.get_level_values(0)
+                        lvl_1 = df_raw.columns.get_level_values(1)
+                        if 'Close' in lvl_0: df_prices = df_raw['Close']
+                        elif 'Adj Close' in lvl_0: df_prices = df_raw['Adj Close']
+                        elif 'Close' in lvl_1: df_prices = df_raw.xs('Close', axis=1, level=1)
+                        elif 'Adj Close' in lvl_1: df_prices = df_raw.xs('Adj Close', axis=1, level=1)
+                        else: df_prices = pd.DataFrame()
                     else:
-                        for ticker in tickers_yf:
+                        col = 'Close' if 'Close' in df_raw.columns else 'Adj Close'
+                        if col in df_raw.columns:
+                            df_prices = df_raw[[col]].copy()
+                            df_prices.columns = [tickers_yf[0]]
+                        else:
+                            df_prices = pd.DataFrame()
+                            
+                    if isinstance(df_prices, pd.Series):
+                        df_prices = df_prices.to_frame(name=tickers_yf[0])
+
+                    if not df_prices.empty:
+                        # 3.1 Pega a cotação do Dólar
+                        cotacao_dolar = 1.0
+                        if tem_exterior and "BRL=X" in df_prices.columns:
                             try:
-                                preco = float(dados_yf['Close'][ticker].iloc[-1])
-                                if pd.notna(preco):
-                                    cotacoes[mapa_tickers[ticker]] = preco
+                                cotacao_dolar = float(df_prices["BRL=X"].iloc[-1])
                             except:
+                                cotacao_dolar = 1.0 # Falha de segurança, mantém 1x1
+                                
+                        # 3.2 Distribui as cotações multiplicando o câmbio quando necessário
+                        for ticker in tickers_yf:
+                            if ticker == "BRL=X": 
+                                continue
+                                
+                            try:
+                                if ticker in df_prices.columns:
+                                    preco_original = float(df_prices[ticker].iloc[-1])
+                                    
+                                    if pd.notna(preco_original):
+                                        # SE NÃO FOR DO BRASIL, MULTIPLICA PELO DÓLAR!
+                                        if not ticker.endswith(".SA"):
+                                            preco_final = preco_original * cotacao_dolar
+                                        else:
+                                            preco_final = preco_original
+                                            
+                                        cotacoes[mapa_tickers[ticker]] = preco_final
+                            except Exception:
                                 pass
             except Exception as e:
                 print(f"Aviso: Falha no Yahoo Finance: {e}")
