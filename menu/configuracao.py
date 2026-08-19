@@ -318,9 +318,6 @@ def render():
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     
                     with st.spinner("Validando ativos na Bolsa..."):
-                        import yfinance as yf
-                        import re
-                        
                         ativos_invalidos = []
                         if cat_selecionada != "Renda Fixa":
                             for ativo in df_para_salvar['Ativo']:
