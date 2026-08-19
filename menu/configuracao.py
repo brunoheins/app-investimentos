@@ -462,6 +462,12 @@ def render():
                 dt_fim_str = dt_fim.strftime('%Y-%m-%d')
                 
                 tickers_download = list(ativos_alvo.keys())
+                
+                # --- DETECTA SE TEM EXTERIOR NA CARTEIRA E FORÇA O DOWNLOAD DO DÓLAR ---
+                tem_exterior = any(not t.endswith('.SA') for t in ativos_alvo.keys())
+                if tem_exterior and 'BRL=X' not in tickers_download:
+                    tickers_download.append('BRL=X')
+                    
                 if "IBOVESPA" in benchmarks: tickers_download.append('^BVSP')
                 if "S&P 500 (BRL)" in benchmarks: 
                     tickers_download.extend(['^GSPC', 'BRL=X'])
@@ -500,7 +506,6 @@ def render():
                         df_prices.columns = [tickers_list[0]]
                         
                 if isinstance(df_prices, pd.Series):
-                    # Se for apenas 1 ticker, o pandas retorna Series. Garantimos que vire DataFrame com o nome da Ação.
                     df_prices = df_prices.to_frame(name=tickers_list[0])
                 
                 port_tickers = [t for t in ativos_alvo.keys() if t in df_prices.columns]
@@ -509,7 +514,17 @@ def render():
                     st.error("Não foi possível localizar o histórico de nenhum ativo da sua carteira.")
                     return
                 
-                df_port_prices = df_prices[port_tickers] if port_tickers else pd.DataFrame(index=[dt_ini])
+                # --- MÁGICA DO CÂMBIO HISTÓRICO PARA A SUA CARTEIRA ---
+                if port_tickers:
+                    df_port_prices = df_prices[port_tickers].copy()
+                    
+                    # Multiplica dia a dia o valor do ativo lá fora pelo Dólar daquele mesmo dia!
+                    if tem_exterior and 'BRL=X' in df_prices.columns:
+                        for t in port_tickers:
+                            if not t.endswith('.SA'):
+                                df_port_prices[t] = df_port_prices[t] * df_prices['BRL=X']
+                else:
+                    df_port_prices = pd.DataFrame(index=[dt_ini])
                 
                 # --- IDENTIFICA ATIVOS NOVATOS E MANTÉM O PERÍODO COMPLETO ---
                 ativos_novatos = []
