@@ -136,33 +136,61 @@ def render():
             ativo_compra = c_atv.selectbox("2. Escolha o Ativo (Digite para buscar)", options=ativos_da_categoria)
             
             st.markdown("---")
-            formato_qtd = "%.8f" if cat_compra in ["Stocks", "REITs", "ETFs"] else "%.4f"
-            minimo_qtd = 0.00000001 if cat_compra in ["Stocks", "REITs", "ETFs"] else 0.0001
             
-            c1, c2, c3 = st.columns(3)
-            data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
-            qtd_compra = c2.number_input("Quantidade", min_value=minimo_qtd, step=1.0, format=formato_qtd)
-            preco_compra = c3.number_input("Preço Unitário (R$)", min_value=0.00, step=1.0, format="%.2f")
+            is_exterior = cat_compra in ["Stocks", "REITs", "ETFs"]
             
-            observacao = st.text_input("Anotações (Opcional)", placeholder="Ex: Split 1:10, Bonificação, Realização de Lucro...")
-            
-            st.info("💡 **Dica para Eventos Corporativos:** Se for Bonificação (ganhou cotas) ou Grupamento (perdeu cotas), deixe o Preço Unitário como **R$ 0,00** para não alterar o dinheiro investido.")
+            if is_exterior:
+                st.markdown("**🇺🇸 Lançamento Internacional**")
+                c1, c2, c3 = st.columns(3)
+                data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
+                qtd_compra = c2.number_input("Quantidade (Fracionária)", min_value=0.00000001, step=1.0, format="%.8f")
+                preco_usd = c3.number_input("Preço Unitário (US$)", min_value=0.00, step=1.0, format="%.2f")
+                
+                c4, c5 = st.columns([1, 2])
+                valor_total_brl = c4.number_input("Total Debitado (R$)", min_value=0.00, step=10.0, format="%.2f", help="O valor exato em Reais que saiu da sua conta.")
+                observacao_user = c5.text_input("Anotações (Opcional)", placeholder="Ex: Remessa Nomad, Dividendo reinvestido...")
+                
+                # CÁLCULOS DO CÂMBIO EFETIVO
+                total_usd = qtd_compra * preco_usd
+                dolar_efetivo = (valor_total_brl / total_usd) if total_usd > 0 else 0.0
+                
+                if total_usd > 0 and valor_total_brl > 0:
+                    st.caption(f"ℹ️ **Resumo da Ordem:** Total em Dólar: **US$ {total_usd:.2f}** | Custo do Dólar (com taxas): **R$ {dolar_efetivo:.4f}**")
+                
+                # Prepara os dados para salvar
+                preco_unitario_brl = (valor_total_brl / qtd_compra) if qtd_compra > 0 else 0.0
+                obs_final = f"[US$ {preco_usd:.2f} | Câmbio: R$ {dolar_efetivo:.4f}] {observacao_user}".strip()
+
+            else:
+                st.markdown("**🇧🇷 Lançamento Nacional**")
+                c1, c2, c3 = st.columns(3)
+                data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
+                qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
+                
+                # VOLTOU PARA PREÇO UNITÁRIO CONFORME SEU PEDIDO
+                preco_unitario_brl = c3.number_input("Preço Unitário (R$)", min_value=0.00, step=1.0, format="%.2f")
+                
+                observacao_user = st.text_input("Anotações (Opcional)", placeholder="Ex: Subscrição, Bonificação...")
+                
+                valor_total_brl = qtd_compra * preco_unitario_brl
+                obs_final = observacao_user
+
+            st.info("💡 **Dica corporativa:** Para Bonificação ou Grupamento, lance o valor como **R$ 0,00** para não alterar o capital investido.")
 
             if st.button("💾 Registrar Operação", use_container_width=True, type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
-                
                 qtd_final = qtd_compra if "Entrada" in tipo_op else -qtd_compra
                 
-                if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_final, preco_compra, observacao):
+                if registrar_compra(st.session_state.email, data_str, cat_compra, ativo_compra, qtd_final, preco_unitario_brl, obs_final):
                     st.session_state.dicas_salvas = None 
                     
-                    if preco_compra == 0:
-                        st.success(f"✅ Evento corporativo de {qtd_compra} cotas salvo com sucesso para {ativo_compra}!")
+                    if preco_unitario_brl == 0:
+                        st.success(f"✅ Evento de {qtd_compra} cotas salvo com sucesso para {ativo_compra}!")
                     else:
                         acao = "Compra" if "Entrada" in tipo_op else "Venda"
-                        st.success(f"✅ {acao} de {qtd_compra}x {ativo_compra} salva com sucesso na categoria {cat_compra}!")
+                        st.success(f"✅ {acao} de {ativo_compra} salva! Total da Ordem: R$ {valor_total_brl:.2f}")
                     
-                    time.sleep(1.5)
+                    time.sleep(2)
                     st.rerun()
 
     # ==========================================
