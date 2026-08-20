@@ -136,9 +136,12 @@ def render():
             ativo_compra = c_atv.selectbox("2. Escolha o Ativo (Digite para buscar)", options=ativos_da_categoria)
             
             st.markdown("---")
+            formato_qtd = "%.8f" if cat_compra in ["Stocks", "REITs", "ETFs"] else "%.4f"
+            minimo_qtd = 0.00000001 if cat_compra in ["Stocks", "REITs", "ETFs"] else 0.0001
+            
             c1, c2, c3 = st.columns(3)
             data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
-            qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
+            qtd_compra = c2.number_input("Quantidade", min_value=minimo_qtd, step=1.0, format=formato_qtd)
             preco_compra = c3.number_input("Preço Unitário (R$)", min_value=0.00, step=1.0, format="%.2f")
             
             observacao = st.text_input("Anotações (Opcional)", placeholder="Ex: Split 1:10, Bonificação, Realização de Lucro...")
