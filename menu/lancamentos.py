@@ -141,14 +141,15 @@ def render():
             
             if is_exterior:
                 st.markdown("**🇺🇸 Lançamento Internacional**")
-                c1, c2, c3 = st.columns(3)
+                # Criamos 4 colunas lado a lado para os dados numéricos
+                c1, c2, c3, c4 = st.columns(4)
                 data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
-                qtd_compra = c2.number_input("Quantidade (Fracionária)", min_value=0.00000001, step=1.0, format="%.8f")
-                preco_usd = c3.number_input("Preço Unitário (US$)", min_value=0.00, step=1.0, format="%.2f")
-                
-                c4, c5 = st.columns([1, 2])
+                qtd_compra = c2.number_input("Quantidade (Frac.)", min_value=0.00000001, step=1.0, format="%.8f")
+                preco_usd = c3.number_input("Preço Unit. (US$)", min_value=0.00, step=1.0, format="%.2f")
                 valor_total_brl = c4.number_input("Total Debitado (R$)", min_value=0.00, step=10.0, format="%.2f", help="O valor exato em Reais que saiu da sua conta.")
-                observacao_user = c5.text_input("Anotações (Opcional)", placeholder="Ex: Remessa Nomad, Dividendo reinvestido...")
+                
+                # Anotação ocupando a linha inteira de baixo
+                observacao_user = st.text_input("Anotações (Opcional)", placeholder="Ex: Remessa Nomad, Dividendo reinvestido...")
                 
                 # CÁLCULOS DO CÂMBIO EFETIVO
                 total_usd = qtd_compra * preco_usd
@@ -163,13 +164,13 @@ def render():
 
             else:
                 st.markdown("**🇧🇷 Lançamento Nacional**")
+                # 3 colunas para o Brasil
                 c1, c2, c3 = st.columns(3)
                 data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
-                qtd_compra = c2.number_input("Quantidade (Cotas/Títulos)", min_value=0.0001, step=1.0, format="%.4f")
-                
-                # VOLTOU PARA PREÇO UNITÁRIO CONFORME SEU PEDIDO
+                qtd_compra = c2.number_input("Quantidade (Cotas)", min_value=0.0001, step=1.0, format="%.4f")
                 preco_unitario_brl = c3.number_input("Preço Unitário (R$)", min_value=0.00, step=1.0, format="%.2f")
                 
+                # Anotação ocupando a linha inteira de baixo
                 observacao_user = st.text_input("Anotações (Opcional)", placeholder="Ex: Subscrição, Bonificação...")
                 
                 valor_total_brl = qtd_compra * preco_unitario_brl
