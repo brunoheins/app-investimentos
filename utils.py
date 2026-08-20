@@ -546,6 +546,36 @@ def registrar_deposito(email, data, valor):
         st.error(f"Erro ao salvar depósito: {e}")
         return False
 
+# ==========================================
+# REGISTRAR DEPÓSITOS (COM MÁSCARA BRASILEIRA)
+# ==========================================
+def registrar_deposito(email, data, valor):
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = json.loads(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        try:
+            sheet = client.open("App_Investimentos").worksheet("Depositos")
+        except:
+            sheet = client.open("App_Investimentos").add_worksheet(title="Depositos", rows=100, cols=3)
+            sheet.append_row(["Email", "Data", "Valor"])
+            
+        # Transforma o ponto em vírgula para não virar data no Google Sheets
+        valor_br = f"{float(valor):.2f}".replace('.', ',')
+        
+        sheet.append_row([email, data, valor_br], value_input_option='USER_ENTERED')
+        
+        st.cache_data.clear() 
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar depósito: {e}")
+        return False
+
+# ==========================================
+# REGISTRAR COMPRAS (COM MÁSCARA BRASILEIRA)
+# ==========================================
 def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, observacao=""):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -554,12 +584,17 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, obs
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Investimentos")
         
-        # Converte para float real, sem formatações de string
-        qtd_float = float(quantidade)
-        preco_float = float(preco_medio)
+        # MÁGICA DE LOCALIZAÇÃO (pt-BR):
+        # Transforma os floats do Python em strings com vírgula (Ex: "182,02").
+        # Isso garante que a planilha entenda que é um número financeiro!
+        qtd_br = f"{float(quantidade):.8f}".replace('.', ',').rstrip('0').rstrip(',')
+        if not qtd_br: 
+            qtd_br = "0"
+            
+        preco_br = f"{float(preco_medio):.4f}".replace('.', ',')
         
         sheet.append_row(
-            [email, data, categoria, ativo, qtd_float, preco_float, observacao], 
+            [email, data, categoria, ativo, qtd_br, preco_br, observacao], 
             value_input_option='USER_ENTERED'
         )
         
