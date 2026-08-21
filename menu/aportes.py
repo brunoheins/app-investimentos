@@ -350,7 +350,7 @@ def render():
                         c_r4.metric("Falta p/ Meta", c['Qtd_Faltante'])
                     else:
                         c_r1, c_r2, c_r3 = st.columns(3)
-                        c_r1.metric("Alocar Exato", formata_br(c['Valor']))
+                        c_r1.metric("Alocar", formata_br(c['Valor']))
                         c_r2.metric("Estratégia", "Escolha Livre")
                         c_r3.metric("Sugestão", "Melhor Taxa IPCA+")
                     st.markdown("<hr style='margin: 0.5em 0; border: 0; border-top: 1px dashed #ddd;'>", unsafe_allow_html=True)
