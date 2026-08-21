@@ -119,9 +119,34 @@ def render():
                                 if not df_novo.empty and "Aviso" not in df_novo.columns:
                                     df_novo['Email'] = email_logado
                                     
+                                    # --- BLINDAGEM DE DADOS PARA A IMPORTAÇÃO ---
+                                    # 1. Tratamento de Datas (Garante o formato DD/MM/YYYY)
+                                    if 'Data' in df_novo.columns:
+                                        df_novo['Data'] = pd.to_datetime(df_novo['Data'], errors='coerce').dt.strftime('%d/%m/%Y')
+                                        
+                                    # 2. Tratamento de Números Financeiros e Fracionários
+                                    # Troca ponto por vírgula para não corromper no Google Sheets
+                                    if aba == "Investimentos":
+                                        if 'Quantidade' in df_novo.columns:
+                                            df_novo['Quantidade'] = df_novo['Quantidade'].apply(lambda x: f"{float(x):.8f}".replace('.', ',').rstrip('0').rstrip(',') if pd.notnull(x) else "")
+                                        if 'Preco' in df_novo.columns:
+                                            df_novo['Preco'] = df_novo['Preco'].apply(lambda x: f"{float(x):.4f}".replace('.', ',') if pd.notnull(x) else "")
+                                        # Garante que os novos campos não fiquem como "NaN" no banco de dados
+                                        if 'Setor' in df_novo.columns:
+                                            df_novo['Setor'] = df_novo['Setor'].fillna('')
+                                        if 'Observacao' in df_novo.columns:
+                                            df_novo['Observacao'] = df_novo['Observacao'].fillna('')
+                                            
+                                    elif aba == "Depositos":
+                                        if 'Valor' in df_novo.columns:
+                                            df_novo['Valor'] = df_novo['Valor'].apply(lambda x: f"{float(x):.2f}".replace('.', ',') if pd.notnull(x) else "")
+
+                                    # Alinha com as colunas reais existentes hoje na nuvem
                                     df_molde = ler_planilha(aba)
                                     if not df_molde.empty:
+                                        # Garante que a estrutura seja idêntica
                                         df_novo = df_novo.reindex(columns=df_molde.columns)
+                                        df_novo = df_novo.fillna('')
                                     
                                     if aba == "Configuracao" or modo_importacao.startswith("Substituir Tudo"):
                                         sucesso_del, msg_del = deletar_registros_usuario(aba, email_logado)
@@ -142,6 +167,8 @@ def render():
                                         
                         if not teve_erro:
                             st.success("✅ Restauração via Excel concluída com sucesso! Atualize a página ou navegue pelo menu para visualizar suas informações.")
+                            # Limpa o cache para forçar a releitura imediata dos novos dados importados
+                            st.cache_data.clear()
                         else:
                             st.warning("⚠️ A restauração terminou, mas ocorreram alguns erros listados acima.")
                             
