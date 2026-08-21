@@ -344,7 +344,7 @@ def render():
                     st.markdown(f"#### {c['Ordem']}º Compra: `{c['Ativo']}` <span style='font-size:0.8em; color:gray;'>({c['Categoria']})</span>", unsafe_allow_html=True)
                     if c['Is_RV']:
                         c_r1, c_r2, c_r3, c_r4 = st.columns(4)
-                        c_r1.metric("Alocar Exato", formata_br(c['Valor']))
+                        c_r1.metric("Alocar", formata_br(c['Valor']))
                         c_r2.metric("Cotação", formata_br(c['PrecoRef']) if c['PrecoRef'] > 0 else "N/A")
                         c_r3.metric("Comprar", c['Qtd_Sugerida'])
                         c_r4.metric("Falta p/ Meta", c['Qtd_Faltante'])
