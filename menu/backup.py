@@ -39,7 +39,6 @@ def render():
         
         if st.button("Gerar Arquivo Excel", type="primary", use_container_width=True):
             with st.spinner("Compilando seus dados em Excel..."):
-                # ADICIONADO: Aba Ativos_Config inclusa no Backup
                 abas_alvo = ["Configuracao", "Ativos_Config", "Depositos", "Investimentos"]
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
@@ -106,7 +105,6 @@ def render():
                 if st.button("🚀 Iniciar Restauração via Excel", type="primary", use_container_width=True):
                     with st.spinner("Processando restauração dos dados... Isso pode demorar um pouco."):
                         
-                        # ADICIONADO: Aba Ativos_Config para varredura de importação
                         abas_alvo = ["Configuracao", "Ativos_Config", "Depositos", "Investimentos"]
                         teve_erro = False
                         
@@ -114,12 +112,11 @@ def render():
                         def trata_numero(val, casas=4):
                             if pd.isna(val) or str(val).strip() == '': return ""
                             try:
-                                # Troca vírgula por ponto (caso venha string do excel) e converte para float
                                 f_val = float(str(val).replace(',', '.'))
                                 if casas == 8:
                                     return f"{f_val:.8f}".replace('.', ',').rstrip('0').rstrip(',')
                                 elif casas == 4:
-                                    return f"{f_val:.4f}".replace('.', ',')
+                                    return f"{f_val:.4f}".replace('.', ',').rstrip('0').rstrip(',')
                                 else:
                                     return f"{f_val:.2f}".replace('.', ',')
                             except:
@@ -133,39 +130,40 @@ def render():
                                 if not df_novo.empty and "Aviso" not in df_novo.columns:
                                     df_novo['Email'] = email_logado
                                     
-                                    # --- BLINDAGEM DE DADOS ---
-                                    if 'Data' in df_novo.columns:
-                                        df_novo['Data'] = pd.to_datetime(df_novo['Data'], errors='coerce').dt.strftime('%d/%m/%Y')
-                                        
-                                    if aba == "Investimentos":
-                                        if 'Quantidade' in df_novo.columns:
-                                            df_novo['Quantidade'] = df_novo['Quantidade'].apply(lambda x: trata_numero(x, 8))
-                                        if 'Preco' in df_novo.columns:
-                                            df_novo['Preco'] = df_novo['Preco'].apply(lambda x: trata_numero(x, 4))
-                                        if 'Setor' in df_novo.columns: df_novo['Setor'] = df_novo['Setor'].fillna('')
-                                        if 'Observacao' in df_novo.columns: df_novo['Observacao'] = df_novo['Observacao'].fillna('')
-                                            
-                                    elif aba == "Depositos":
-                                        if 'Valor' in df_novo.columns:
-                                            df_novo['Valor'] = df_novo['Valor'].apply(lambda x: trata_numero(x, 2))
-                                            
-                                    elif aba == "Ativos_Config":
-                                        if 'Peso' in df_novo.columns:
-                                            df_novo['Peso'] = df_novo['Peso'].apply(lambda x: trata_numero(x, 2))
-                                        if 'Setor' in df_novo.columns: df_novo['Setor'] = df_novo['Setor'].fillna('')
-                                            
-                                    elif aba == "Configuracao":
-                                        colunas_num = ['RF', 'RV', 'RV_Brasil', 'RV_Exterior', 'BR_Acoes', 'BR_FIIs', 'EX_Stocks', 'EX_REITs', 'EX_ETFs']
-                                        for c in colunas_num:
-                                            if c in df_novo.columns:
-                                                df_novo[c] = df_novo[c].apply(lambda x: trata_numero(x, 2))
-
-                                    # Sincroniza as colunas com a nuvem
+                                    # 1º PASSO: Sincroniza as colunas exatas com a nuvem ANTES de processar
                                     df_molde = ler_planilha(aba)
                                     if not df_molde.empty:
                                         df_novo = df_novo.reindex(columns=df_molde.columns)
-                                        df_novo = df_novo.fillna('')
                                     
+                                    # Substitui os NaNs por vazios para não quebrar a formatação
+                                    df_novo = df_novo.fillna('')
+                                    
+                                    # 2º PASSO: Blindagem dinâmica de Dados (Não depende do nome exato)
+                                    if 'Data' in df_novo.columns:
+                                        df_novo['Data'] = pd.to_datetime(df_novo['Data'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
+                                        
+                                    for col in df_novo.columns:
+                                        col_l = col.lower()
+                                        
+                                        if aba == "Investimentos":
+                                            if 'quant' in col_l or 'qtd' in col_l:
+                                                df_novo[col] = df_novo[col].apply(lambda x: trata_numero(x, 8))
+                                            elif 'prec' in col_l or 'preç' in col_l or 'custo' in col_l:
+                                                df_novo[col] = df_novo[col].apply(lambda x: trata_numero(x, 4))
+                                                
+                                        elif aba == "Depositos":
+                                            if 'valor' in col_l:
+                                                df_novo[col] = df_novo[col].apply(lambda x: trata_numero(x, 2))
+                                                
+                                        elif aba == "Ativos_Config":
+                                            if 'peso' in col_l:
+                                                df_novo[col] = df_novo[col].apply(lambda x: trata_numero(x, 2))
+                                                
+                                        elif aba == "Configuracao":
+                                            if col not in ['Email', 'Data', 'Aviso', 'Setor', 'Observacao']:
+                                                df_novo[col] = df_novo[col].apply(lambda x: trata_numero(x, 2))
+
+                                    # 3º PASSO: Salva no Google Sheets
                                     if aba in ["Configuracao", "Ativos_Config"] or modo_importacao.startswith("Substituir Tudo"):
                                         sucesso_del, msg_del = deletar_registros_usuario(aba, email_logado)
                                         if not sucesso_del:
