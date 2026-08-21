@@ -13,25 +13,22 @@ def render():
     # ==========================================
     # MÁGICA VISUAL: NAVEGAÇÃO COM BOTÕES NATIVOS
     # ==========================================
-    # Inicializa a memória para saber em qual tela estamos
     if "tela_backup" not in st.session_state:
         st.session_state.tela_backup = "exportar"
         
     col1, col2 = st.columns(2)
     
     with col1:
-        # Se a tela atual for exportar, o botão fica em destaque (primary)
         if st.button("📤 Exportar para Excel", use_container_width=True, type="primary" if st.session_state.tela_backup == "exportar" else "secondary"):
             st.session_state.tela_backup = "exportar"
             st.rerun()
             
     with col2:
-        # Se a tela atual for importar, o botão fica em destaque (primary)
         if st.button("📥 Importar do Excel", use_container_width=True, type="primary" if st.session_state.tela_backup == "importar" else "secondary"):
             st.session_state.tela_backup = "importar"
             st.rerun()
 
-    st.divider() # Cria uma linha separadora elegante abaixo dos botões
+    st.divider()
     
     # ==========================================
     # LÓGICA DE EXPORTAÇÃO (EXCEL FÍSICO)
@@ -42,7 +39,8 @@ def render():
         
         if st.button("Gerar Arquivo Excel", type="primary", use_container_width=True):
             with st.spinner("Compilando seus dados em Excel..."):
-                abas_alvo = ["Configuracao", "Depositos", "Investimentos"]
+                # ADICIONADO: Aba Ativos_Config inclusa no Backup
+                abas_alvo = ["Configuracao", "Ativos_Config", "Depositos", "Investimentos"]
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                     caminho_temp = tmp.name
@@ -108,8 +106,24 @@ def render():
                 if st.button("🚀 Iniciar Restauração via Excel", type="primary", use_container_width=True):
                     with st.spinner("Processando restauração dos dados... Isso pode demorar um pouco."):
                         
-                        abas_alvo = ["Configuracao", "Depositos", "Investimentos"]
+                        # ADICIONADO: Aba Ativos_Config para varredura de importação
+                        abas_alvo = ["Configuracao", "Ativos_Config", "Depositos", "Investimentos"]
                         teve_erro = False
+                        
+                        # Função de blindagem (Converte tudo para padrão pt-BR de forma segura)
+                        def trata_numero(val, casas=4):
+                            if pd.isna(val) or str(val).strip() == '': return ""
+                            try:
+                                # Troca vírgula por ponto (caso venha string do excel) e converte para float
+                                f_val = float(str(val).replace(',', '.'))
+                                if casas == 8:
+                                    return f"{f_val:.8f}".replace('.', ',').rstrip('0').rstrip(',')
+                                elif casas == 4:
+                                    return f"{f_val:.4f}".replace('.', ',')
+                                else:
+                                    return f"{f_val:.2f}".replace('.', ',')
+                            except:
+                                return str(val)
                         
                         for aba in abas_alvo:
                             if aba in xls.sheet_names:
@@ -119,36 +133,40 @@ def render():
                                 if not df_novo.empty and "Aviso" not in df_novo.columns:
                                     df_novo['Email'] = email_logado
                                     
-                                    # --- BLINDAGEM DE DADOS PARA A IMPORTAÇÃO ---
-                                    # 1. Tratamento de Datas (Garante o formato DD/MM/YYYY)
+                                    # --- BLINDAGEM DE DADOS ---
                                     if 'Data' in df_novo.columns:
                                         df_novo['Data'] = pd.to_datetime(df_novo['Data'], errors='coerce').dt.strftime('%d/%m/%Y')
                                         
-                                    # 2. Tratamento de Números Financeiros e Fracionários
-                                    # Troca ponto por vírgula para não corromper no Google Sheets
                                     if aba == "Investimentos":
                                         if 'Quantidade' in df_novo.columns:
-                                            df_novo['Quantidade'] = df_novo['Quantidade'].apply(lambda x: f"{float(x):.8f}".replace('.', ',').rstrip('0').rstrip(',') if pd.notnull(x) else "")
+                                            df_novo['Quantidade'] = df_novo['Quantidade'].apply(lambda x: trata_numero(x, 8))
                                         if 'Preco' in df_novo.columns:
-                                            df_novo['Preco'] = df_novo['Preco'].apply(lambda x: f"{float(x):.4f}".replace('.', ',') if pd.notnull(x) else "")
-                                        # Garante que os novos campos não fiquem como "NaN" no banco de dados
-                                        if 'Setor' in df_novo.columns:
-                                            df_novo['Setor'] = df_novo['Setor'].fillna('')
-                                        if 'Observacao' in df_novo.columns:
-                                            df_novo['Observacao'] = df_novo['Observacao'].fillna('')
+                                            df_novo['Preco'] = df_novo['Preco'].apply(lambda x: trata_numero(x, 4))
+                                        if 'Setor' in df_novo.columns: df_novo['Setor'] = df_novo['Setor'].fillna('')
+                                        if 'Observacao' in df_novo.columns: df_novo['Observacao'] = df_novo['Observacao'].fillna('')
                                             
                                     elif aba == "Depositos":
                                         if 'Valor' in df_novo.columns:
-                                            df_novo['Valor'] = df_novo['Valor'].apply(lambda x: f"{float(x):.2f}".replace('.', ',') if pd.notnull(x) else "")
+                                            df_novo['Valor'] = df_novo['Valor'].apply(lambda x: trata_numero(x, 2))
+                                            
+                                    elif aba == "Ativos_Config":
+                                        if 'Peso' in df_novo.columns:
+                                            df_novo['Peso'] = df_novo['Peso'].apply(lambda x: trata_numero(x, 2))
+                                        if 'Setor' in df_novo.columns: df_novo['Setor'] = df_novo['Setor'].fillna('')
+                                            
+                                    elif aba == "Configuracao":
+                                        colunas_num = ['RF', 'RV', 'RV_Brasil', 'RV_Exterior', 'BR_Acoes', 'BR_FIIs', 'EX_Stocks', 'EX_REITs', 'EX_ETFs']
+                                        for c in colunas_num:
+                                            if c in df_novo.columns:
+                                                df_novo[c] = df_novo[c].apply(lambda x: trata_numero(x, 2))
 
-                                    # Alinha com as colunas reais existentes hoje na nuvem
+                                    # Sincroniza as colunas com a nuvem
                                     df_molde = ler_planilha(aba)
                                     if not df_molde.empty:
-                                        # Garante que a estrutura seja idêntica
                                         df_novo = df_novo.reindex(columns=df_molde.columns)
                                         df_novo = df_novo.fillna('')
                                     
-                                    if aba == "Configuracao" or modo_importacao.startswith("Substituir Tudo"):
+                                    if aba in ["Configuracao", "Ativos_Config"] or modo_importacao.startswith("Substituir Tudo"):
                                         sucesso_del, msg_del = deletar_registros_usuario(aba, email_logado)
                                         if not sucesso_del:
                                             st.error(f"Erro ao limpar aba {aba}: {msg_del}")
@@ -167,7 +185,6 @@ def render():
                                         
                         if not teve_erro:
                             st.success("✅ Restauração via Excel concluída com sucesso! Atualize a página ou navegue pelo menu para visualizar suas informações.")
-                            # Limpa o cache para forçar a releitura imediata dos novos dados importados
                             st.cache_data.clear()
                         else:
                             st.warning("⚠️ A restauração terminou, mas ocorreram alguns erros listados acima.")
