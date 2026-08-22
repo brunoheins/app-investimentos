@@ -61,23 +61,24 @@ def render():
     st.markdown("<br>", unsafe_allow_html=True)
     c_aba1, c_aba2, c_aba3 = st.columns(3)
     
+    # ATUALIZADO: width='stretch'
     c_aba1.button(
         "🎯 1. Metas de Alocação", 
-        use_container_width=True, 
+        width='stretch', 
         on_click=mudar_aba_config, args=("Metas",),
         type="primary" if st.session_state.aba_config == "Metas" else "secondary"
     )
 
     c_aba2.button(
         "📋 2. Ativos e Setores", 
-        use_container_width=True, 
+        width='stretch', 
         on_click=mudar_aba_config, args=("Ativos",),
         type="primary" if st.session_state.aba_config == "Ativos" else "secondary"
     )
     
     c_aba3.button(
         "⏪ 3. Backtesting", 
-        use_container_width=True, 
+        width='stretch', 
         on_click=mudar_aba_config, args=("Backtest",),
         type="primary" if st.session_state.aba_config == "Backtest" else "secondary"
     )
@@ -178,7 +179,8 @@ def render():
             """)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
+            # ATUALIZADO: width='stretch'
+            if st.button("💾 Salvar Configuração Macro", width='stretch', type="primary"):
                 dados_para_salvar = {
                     'RF': f"{st.session_state.rf_val:.2f}".replace('.', ','), 
                     'RV': f"{st.session_state.rv_val:.2f}".replace('.', ','), 
@@ -215,10 +217,8 @@ def render():
             
             df_resumo_grafico = df_resumo[df_resumo["% Alvo Final"] > 0]
             
-            # --- FIX 1: FORMATAÇÃO VISUAL DO RESUMO DO OBJETIVO PARA VÍRGULA ---
             df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].apply(lambda x: f"{x:.2f}%".replace('.', ','))
             
-            # --- FIX 2: TROCANDO USE_CONTAINER_WIDTH POR WIDTH='STRETCH' E RESET_INDEX ---
             df_resumo = df_resumo.reset_index(drop=True)
             st.dataframe(df_resumo, width='stretch', hide_index=True)
             
@@ -253,8 +253,9 @@ def render():
         cols_cat = st.columns(len(categorias))
         
         for i, cat in enumerate(categorias):
+            # ATUALIZADO: width='stretch'
             cols_cat[i].button(
-                cat, use_container_width=True, on_click=mudar_cat_config, args=(cat,),
+                cat, width='stretch', on_click=mudar_cat_config, args=(cat,),
                 type="primary" if st.session_state.cat_config == cat else "secondary",
                 key=f"btn_nav_{cat}"
             )
@@ -284,7 +285,6 @@ def render():
             df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": ["100,00"], "Setor": [""]})
         else:
             df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
-            # --- FIX 3: DEIXA O VALOR COMO STRING TEXTO COM VÍRGULA PARA O EDITOR PT-BR ---
             df_cat_salvo['Peso (%)'] = pd.to_numeric(df_cat_salvo['Peso (%)'].astype(str).str.replace(',', '.'), errors='coerce').apply(lambda x: f"{x:.2f}".replace('.', ','))
             df_cat_salvo['Setor'] = df_cat_salvo['Setor'].replace(['Não Classificado', 'nan', 'None'], '')
             df_inicial = df_cat_salvo
@@ -292,10 +292,8 @@ def render():
         col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
         
         with col_tabela:
-            # --- FIX 4: RESOLVE O HIDE_INDEX WARNING ---
             df_inicial = df_inicial.reset_index(drop=True)
             
-            # ATUALIZADO: width='stretch' substitui use_container_width=True e TextColumn para evitar bugs de conversão do Streamlit
             df_editado = st.data_editor(
                 df_inicial,
                 num_rows="dynamic",
@@ -313,7 +311,6 @@ def render():
                 }
             )
 
-            # Transforma as strings da tela de volta pra float só pra validar a soma
             soma_pesos = pd.to_numeric(df_editado['Peso (%)'].astype(str).str.replace(',', '.'), errors='coerce').sum()
             
             col_info, col_btn = st.columns([2, 1])
@@ -324,11 +321,11 @@ def render():
                     st.warning(f"⚠️ Soma: **{str(round(soma_pesos, 2)).replace('.', ',')}%** (O ideal é 100%)")
             
             with col_btn:
-                if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
+                # ATUALIZADO: width='stretch'
+                if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", width='stretch'):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     
-                    # Salva limpo, já cravando 2 casas e virgula
                     df_para_salvar['Peso'] = pd.to_numeric(df_para_salvar['Peso'].astype(str).str.replace(',', '.'), errors='coerce').apply(lambda x: f"{x:.2f}".replace('.', ','))
                     
                     with st.spinner("Validando ativos na Bolsa..."):
@@ -454,7 +451,8 @@ def render():
             st.warning("Insira um Aporte Inicial ou Aporte Mensal para realizar a simulação.")
             return
 
-        if st.button("🚀 Rodar Backtest da Carteira", use_container_width=True, type="primary"):
+        # ATUALIZADO: width='stretch'
+        if st.button("🚀 Rodar Backtest da Carteira", width='stretch', type="primary"):
             with st.spinner(f"Viajando no tempo e investindo todos os meses por {anos_str}..."):
                 
                 hoje = datetime.datetime.today()
@@ -672,6 +670,5 @@ def render():
                     yaxis=dict(tickformat=",.2f")
                 )
                 
-                # ATUALIZADO: width='stretch' não existe pro plotly_chart, o certo é use_container_width (aqui a depreciação do streamlit só afeta dataframes)
                 st.plotly_chart(fig, use_container_width=True)
                 st.caption("Nota: Este backtest adota a premissa de que você comprou frações exatas e fez o rebalanceamento invisível perfeito todos os meses seguindo sua alocação macro e micro atual.")
