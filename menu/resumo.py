@@ -82,7 +82,7 @@ def render():
                 fig = px.pie(df_categoria, values='TotalAtual', names='Categoria', hole=0.4)
                 fig.update_traces(textinfo='label+percent')
                 fig.update_layout(height=350, margin=dict(t=20, b=20, l=0, r=0), showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             
             with col_tabelas:
                 st.subheader("Detalhamento por Ativos")
@@ -96,7 +96,7 @@ def render():
                         df_exibicao['TotalAtual'] = df_exibicao['TotalAtual'].apply(formata_br)
                         df_exibicao['EvolucaoPct'] = df_exibicao['EvolucaoPct'].map('{:+.2f}%'.format).str.replace('.', ',')
                         
-                        st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
+                        st.dataframe(df_exibicao, width='stretch', hide_index=True)
 
             # ==========================================
             # NOVO: RAIO-X DE EXPOSIÇÃO SETORIAL GLOBAL
@@ -116,7 +116,7 @@ def render():
                     fig_setor = px.pie(df_rv_setor, values='TotalAtual', names='Setor', hole=0.4)
                     fig_setor.update_traces(textinfo='percent')
                     fig_setor.update_layout(height=350, margin=dict(t=20, b=20, l=0, r=0), legend=dict(orientation="h", y=-0.2))
-                    st.plotly_chart(fig_setor, use_container_width=True)
+                    st.plotly_chart(fig_setor, width='stretch')
                 
                 with c_tabela_setor:
                     df_rv_setor_exibicao = df_rv_setor.sort_values(by='TotalAtual', ascending=False)
@@ -125,7 +125,7 @@ def render():
                     
                     st.dataframe(
                         df_rv_setor_exibicao[['Setor', 'Total (R$)', 'Peso (%)']],
-                        use_container_width=True, 
+                        width='stretch', 
                         hide_index=True
                     )
             else:
