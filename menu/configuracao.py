@@ -14,7 +14,6 @@ from utils import ler_planilha, salvar_configuracao, salvar_ativos_categoria, fo
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_bcb_history(codigo, dt_ini, dt_fim):
-    """Busca dados históricos do Banco Central para o Backtest (SGS 4391=CDI, 433=IPCA)"""
     url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=json&dataInicial={dt_ini.strftime('%d/%m/%Y')}&dataFinal={dt_fim.strftime('%d/%m/%Y')}"
     try:
         res = requests.get(url, timeout=10)
@@ -32,7 +31,6 @@ def fetch_bcb_history(codigo, dt_ini, dt_fim):
 def render():
     st.title("⚙️ Central de Configuração da Carteira")
     
-    # COFRE: Salva estado das metas de alocação
     if 'backup_macro' not in st.session_state:
         df_conf = ler_planilha("Configuracao")
         user_conf = {}
@@ -54,9 +52,6 @@ def render():
             'ex_et': float(str(user_conf.get('EX_ETFs', 30.0)).replace(',', '.'))
         }
 
-    # ==========================================
-    # SISTEMA DE ABAS TRIPLO
-    # ==========================================
     if 'aba_config' not in st.session_state:
         st.session_state.aba_config = "Metas"
 
@@ -184,7 +179,6 @@ def render():
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
-                # CÓDIGO BLINDADO: Salva estritamente como texto, com 2 casas decimais e vírgula!
                 dados_para_salvar = {
                     'RF': f"{st.session_state.rf_val:.2f}".replace('.', ','), 
                     'RV': f"{st.session_state.rv_val:.2f}".replace('.', ','), 
@@ -220,9 +214,12 @@ def render():
             })
             
             df_resumo_grafico = df_resumo[df_resumo["% Alvo Final"] > 0]
-            df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].map('{:.2f}%'.format)
             
-            # ATUALIZADO: width='stretch' substitui use_container_width=True
+            # --- FIX 1: FORMATAÇÃO VISUAL DO RESUMO DO OBJETIVO PARA VÍRGULA ---
+            df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].apply(lambda x: f"{x:.2f}%".replace('.', ','))
+            
+            # --- FIX 2: TROCANDO USE_CONTAINER_WIDTH POR WIDTH='STRETCH' E RESET_INDEX ---
+            df_resumo = df_resumo.reset_index(drop=True)
             st.dataframe(df_resumo, width='stretch', hide_index=True)
             
             fig_resumo = px.pie(df_resumo_grafico, values='% Alvo Final', names="Categoria", hole=0.5)
@@ -284,18 +281,21 @@ def render():
             df_cat_salvo['Setor'] = ''
             
         if df_cat_salvo.empty:
-            df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0], "Setor": [""]})
+            df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": ["100,00"], "Setor": [""]})
         else:
             df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
-            # Lê o número com vírgula do banco e transforma em float para o editor
-            df_cat_salvo['Peso (%)'] = df_cat_salvo['Peso (%)'].astype(str).str.replace(',', '.').astype(float)
+            # --- FIX 3: DEIXA O VALOR COMO STRING TEXTO COM VÍRGULA PARA O EDITOR PT-BR ---
+            df_cat_salvo['Peso (%)'] = pd.to_numeric(df_cat_salvo['Peso (%)'].astype(str).str.replace(',', '.'), errors='coerce').apply(lambda x: f"{x:.2f}".replace('.', ','))
             df_cat_salvo['Setor'] = df_cat_salvo['Setor'].replace(['Não Classificado', 'nan', 'None'], '')
             df_inicial = df_cat_salvo
 
         col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
         
         with col_tabela:
-            # ATUALIZADO: width='stretch' substitui use_container_width=True
+            # --- FIX 4: RESOLVE O HIDE_INDEX WARNING ---
+            df_inicial = df_inicial.reset_index(drop=True)
+            
+            # ATUALIZADO: width='stretch' substitui use_container_width=True e TextColumn para evitar bugs de conversão do Streamlit
             df_editado = st.data_editor(
                 df_inicial,
                 num_rows="dynamic",
@@ -304,7 +304,7 @@ def render():
                 key=f"editor_cat_v2_{cat_selecionada}",
                 column_config={
                     "Ativo": st.column_config.TextColumn("Ativo (Ticker)", required=True),
-                    "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.01, format="%.2f"),
+                    "Peso (%)": st.column_config.TextColumn("Peso (%) (Ex: 10,50)"),
                     "Setor": st.column_config.TextColumn(
                         "Setor / Segmento", 
                         help="Deixe em branco e o sistema preencherá automaticamente ao salvar!", 
@@ -313,22 +313,23 @@ def render():
                 }
             )
 
-            soma_pesos = pd.to_numeric(df_editado['Peso (%)'], errors='coerce').sum()
+            # Transforma as strings da tela de volta pra float só pra validar a soma
+            soma_pesos = pd.to_numeric(df_editado['Peso (%)'].astype(str).str.replace(',', '.'), errors='coerce').sum()
             
             col_info, col_btn = st.columns([2, 1])
             with col_info:
                 if abs(soma_pesos - 100.0) < 0.01:
-                    st.success(f"✅ Soma: **{soma_pesos:.2f}%**")
+                    st.success(f"✅ Soma: **{str(round(soma_pesos, 2)).replace('.', ',')}%**")
                 else:
-                    st.warning(f"⚠️ Soma: **{soma_pesos:.2f}%** (O ideal é 100%)")
+                    st.warning(f"⚠️ Soma: **{str(round(soma_pesos, 2)).replace('.', ',')}%** (O ideal é 100%)")
             
             with col_btn:
                 if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
                     
-                    # CÓDIGO BLINDADO: Força 2 casas decimais e transforma o ponto em vírgula antes de salvar!
-                    df_para_salvar['Peso'] = pd.to_numeric(df_para_salvar['Peso'], errors='coerce').apply(lambda x: f"{x:.2f}".replace('.', ','))
+                    # Salva limpo, já cravando 2 casas e virgula
+                    df_para_salvar['Peso'] = pd.to_numeric(df_para_salvar['Peso'].astype(str).str.replace(',', '.'), errors='coerce').apply(lambda x: f"{x:.2f}".replace('.', ','))
                     
                     with st.spinner("Validando ativos na Bolsa..."):
                         ativos_invalidos = []
@@ -339,13 +340,11 @@ def render():
                                     continue
                                     
                                 ticker = ativo_str
-                                # Normaliza para a B3 antes de checar
                                 if cat_selecionada in ["Ações", "FIIs"]:
                                     if "." not in ticker and re.search(r'\d+$', ticker):
                                         ticker = f"{ticker}.SA"
                                 
                                 try:
-                                    # Puxar 1 dia de histórico é o teste mais rápido e confiável do Yahoo
                                     if yf.Ticker(ticker).history(period="1d").empty:
                                         ativos_invalidos.append(ativo_str)
                                 except:
@@ -361,7 +360,7 @@ def render():
         with col_graf_setor:
             st.markdown(f"**Exposição Setorial Alvo ({cat_selecionada})**")
             df_setores = df_editado.copy()
-            df_setores['Peso (%)'] = pd.to_numeric(df_setores['Peso (%)'], errors='coerce').fillna(0)
+            df_setores['Peso (%)'] = pd.to_numeric(df_setores['Peso (%)'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
             df_setores['Setor'] = df_setores['Setor'].fillna('Pendente').apply(lambda x: 'Pendente (Auto)' if str(x).strip() == '' else x)
             
             df_group_setor = df_setores.groupby('Setor')['Peso (%)'].sum().reset_index()
@@ -383,7 +382,6 @@ def render():
         st.subheader("⏪ Máquina do Tempo (Backtesting DCA)")
         st.markdown("Descubra como a sua **configuração de pesos atual** teria performado no passado com **aportes regulares**.")
 
-        # --- 1. LÊ A CARTEIRA CONFIGURADA ---
         user_conf = st.session_state.backup_macro
         peso_rv = user_conf['rv'] / 100.0
         peso_br = user_conf['rv_br'] / 100.0
@@ -428,9 +426,7 @@ def render():
             st.warning("⚠️ Você precisa preencher as abas 'Metas' e 'Ativos' antes de rodar o Backtest.")
             return
 
-        # --- 2. PAINEL DE CONTROLE UI ---
         st.markdown("---")
-        # Alargamos levemente a última coluna para os checkboxes respirarem melhor
         c_opts1, c_opts2, c_opts3, c_opts4 = st.columns([1, 1, 1, 1.2]) 
         
         opcoes_tempo = {"1 Ano": 1, "3 Anos": 3, "5 Anos": 5, "10 Anos": 10, "20 Anos": 20, "Máximo Possível": 30}
@@ -440,7 +436,6 @@ def render():
         aporte_inicial = c_opts2.number_input("💵 Aporte Inicial (R$):", min_value=0.0, value=5000.0, step=1000.0)
         aporte_mensal = c_opts3.number_input("🔁 Aporte Mensal (R$):", min_value=0.0, value=1000.0, step=100.0)
         
-        # --- CHECKBOXES NO LUGAR DO MULTISELECT ---
         with c_opts4:
             st.markdown("<div style='margin-bottom: 0.3rem;'><b>📊 Comparativos:</b></div>", unsafe_allow_html=True)
             c_sub1, c_sub2 = st.columns(2)
@@ -449,7 +444,6 @@ def render():
             chk_ibov = c_sub2.checkbox("IBOVESPA", value=True)
             chk_ipca = c_sub2.checkbox("IPCA", value=False)
             
-        # O sistema remonta a lista silenciosamente nos bastidores
         benchmarks = []
         if chk_cdi: benchmarks.append("CDI")
         if chk_ibov: benchmarks.append("IBOVESPA")
@@ -460,7 +454,6 @@ def render():
             st.warning("Insira um Aporte Inicial ou Aporte Mensal para realizar a simulação.")
             return
 
-        # --- 3. MOTOR DE EXECUÇÃO ---
         if st.button("🚀 Rodar Backtest da Carteira", use_container_width=True, type="primary"):
             with st.spinner(f"Viajando no tempo e investindo todos os meses por {anos_str}..."):
                 
@@ -473,7 +466,6 @@ def render():
                 
                 tickers_download = list(ativos_alvo.keys())
                 
-                # --- DETECTA SE TEM EXTERIOR NA CARTEIRA E FORÇA O DOWNLOAD DO DÓLAR ---
                 tem_exterior = any(not t.endswith('.SA') for t in ativos_alvo.keys())
                 if tem_exterior and 'BRL=X' not in tickers_download:
                     tickers_download.append('BRL=X')
@@ -482,7 +474,6 @@ def render():
                 if "S&P 500 (BRL)" in benchmarks: 
                     tickers_download.extend(['^GSPC', 'BRL=X'])
                 
-                # Puxa Cotações (Tratamento Anti-Quebra YFinance Definitivo)
                 tickers_list = list(set(tickers_download))
                 df_raw = yf.download(tickers_list, start=dt_ini_str, end=dt_fim_str, progress=False, ignore_tz=True)
                 
@@ -490,7 +481,6 @@ def render():
                     st.error("Não foi possível buscar o histórico de preços. O servidor do Yahoo Finance pode estar instável.")
                     return
                 
-                # MÁGICA ANTI-QUEBRA DEFINITIVA: Checa todos os níveis e possibilidades
                 if isinstance(df_raw.columns, pd.MultiIndex):
                     lvl_0 = df_raw.columns.get_level_values(0)
                     lvl_1 = df_raw.columns.get_level_values(1)
@@ -524,11 +514,8 @@ def render():
                     st.error("Não foi possível localizar o histórico de nenhum ativo da sua carteira.")
                     return
                 
-                # --- MÁGICA DO CÂMBIO HISTÓRICO PARA A SUA CARTEIRA ---
                 if port_tickers:
                     df_port_prices = df_prices[port_tickers].copy()
-                    
-                    # Multiplica dia a dia o valor do ativo lá fora pelo Dólar daquele mesmo dia!
                     if tem_exterior and 'BRL=X' in df_prices.columns:
                         for t in port_tickers:
                             if not t.endswith('.SA'):
@@ -536,7 +523,6 @@ def render():
                 else:
                     df_port_prices = pd.DataFrame(index=[dt_ini])
                 
-                # --- IDENTIFICA ATIVOS NOVATOS E MANTÉM O PERÍODO COMPLETO ---
                 ativos_novatos = []
                 data_limite = pd.to_datetime(dt_ini_str) + pd.DateOffset(days=30)
                 
@@ -549,9 +535,8 @@ def render():
                 if ativos_novatos:
                     st.info(f"💡 **Caixa Inteligente:** A simulação de **{anos_str}** foi mantida intacta! Como os ativos a seguir não existiam no início, o sistema simulou o peso deles rendendo 100% do CDI até o dia do lançamento: {', '.join(ativos_novatos)}.")
 
-                actual_start_date = dt_ini # Força a máquina do tempo a usar o período completo!
+                actual_start_date = dt_ini 
                 
-                # --- CALCULA RENTABILIDADE MENSAL BASE (Sem preencher com zero ainda) ---
                 if port_tickers:
                     df_port_ret = df_port_prices.resample('ME').last().pct_change()
                     df_port_ret.index = df_port_ret.index.strftime('%Y-%m')
@@ -574,16 +559,12 @@ def render():
                 if not df_ipca.empty:
                     df_merged = df_merged.join(df_ipca, how='outer')
                     
-                # --- MÁGICA DO CAIXA (CDI) PARA ATIVOS NOVATOS ---
-                # Se o ativo não tinha cotação no mês (NaN), ele assume o rendimento do CDI!
                 if 'CDI' in df_merged.columns:
                     for t in port_tickers:
                         df_merged[t] = df_merged[t].fillna(df_merged['CDI'])
                 
-                # Tapa qualquer outro buraco residual (ex: atraso na API) com 0
                 df_merged = df_merged.fillna(0)
                 
-                # Consolida o retorno da Carteira do Usuário
                 port_returns = pd.Series(0.0, index=df_merged.index)
                 for t in port_tickers:
                     port_returns += df_merged[t] * ativos_alvo[t]
@@ -609,11 +590,9 @@ def render():
                     df_merged = df_merged.join(sp_ret.rename('SP500_BRL'), how='left').fillna(0)
                     colunas_acumular.append('SP500_BRL')
 
-                # Se a primeira linha não teve retorno preenchido, limpa
                 if df_merged.iloc[0].sum() == 0:
                     df_merged = df_merged.iloc[1:]
 
-                # --- LOOP DE JUROS COMPOSTOS COM APORTE MENSAL ---
                 df_cum = pd.DataFrame(index=df_merged.index, columns=colunas_acumular)
                 linha_custo = []
                 
@@ -621,10 +600,8 @@ def render():
                 total_bolso = aporte_inicial
                 
                 for idx, row in df_merged.iterrows():
-                    # 1. Aplica o rendimento do mês no saldo que já estava na conta
                     for c in colunas_acumular:
                         saldos[c] = saldos[c] * (1 + row.get(c, 0.0))
-                        # 2. Adiciona o Aporte Mensal novo
                         saldos[c] += aporte_mensal
                         df_cum.loc[idx, c] = saldos[c]
                         
@@ -633,7 +610,6 @@ def render():
                         
                 df_cum['Total_Investido'] = linha_custo
 
-                # Insere o "Mês Zero" no gráfico para o traçado nascer do aporte inicial
                 try:
                     mes_zero = (pd.to_datetime(df_cum.index[0] + '-01') - pd.DateOffset(months=1)).strftime('%Y-%m')
                     linha_zero = {c: aporte_inicial for c in colunas_acumular}
@@ -643,7 +619,6 @@ def render():
                 except:
                     pass
 
-                # --- 4. EXIBIÇÃO DE RESULTADOS ---
                 st.markdown("### 🏆 Resultado da Simulação")
                 
                 val_final_port = df_cum['Sua Carteira'].iloc[-1]
@@ -659,10 +634,8 @@ def render():
 
                 st.markdown("---")
                 
-                # --- PLOTA O GRÁFICO ---
                 fig = go.Figure()
 
-                # A Reta do Dinheiro Suado
                 fig.add_trace(go.Scatter(
                     x=df_cum.index, y=df_cum['Total_Investido'],
                     mode='lines', name='Seu Dinheiro Investido',
@@ -671,7 +644,6 @@ def render():
                     hovertemplate="Investido (Bolso): R$ %{y:,.2f}<extra></extra>"
                 ))
 
-                # A Curva da Carteira
                 fig.add_trace(go.Scatter(
                     x=df_cum.index, y=df_cum['Sua Carteira'],
                     mode='lines', name='Sua Carteira',
@@ -700,5 +672,6 @@ def render():
                     yaxis=dict(tickformat=",.2f")
                 )
                 
+                # ATUALIZADO: width='stretch' não existe pro plotly_chart, o certo é use_container_width (aqui a depreciação do streamlit só afeta dataframes)
                 st.plotly_chart(fig, use_container_width=True)
                 st.caption("Nota: Este backtest adota a premissa de que você comprou frações exatas e fez o rebalanceamento invisível perfeito todos os meses seguindo sua alocação macro e micro atual.")
