@@ -1,18 +1,36 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from utils import ler_planilha, extrair_numero_br, formata_br
+from utils import ler_planilha, formata_br
 
 # ==========================================
-# MÁGICA ANTI-QUEBRA DO YAHOO FINANCE (NOVO)
+# ARMADURA NUMÉRICA UNIVERSAL
+# ==========================================
+def limpa_numero_seguro(val):
+    """Lê com perfeição tanto números americanos do Excel quanto formato PT-BR"""
+    if pd.isna(val) or str(val).strip() == '': return 0.0
+    if isinstance(val, (int, float)): return float(val)
+    
+    v = str(val).strip().replace('R$', '').replace(' ', '')
+    if '.' in v and ',' in v:
+        v = v.replace('.', '').replace(',', '.')
+    elif ',' in v:
+        v = v.replace(',', '.')
+    
+    try:
+        return float(v)
+    except:
+        return 0.0
+
+# ==========================================
+# MÁGICA ANTI-QUEBRA DO YAHOO FINANCE
 # ==========================================
 @st.cache_data(ttl=900, show_spinner=False)
-def obter_cotacoes_corrigido():
-    """Busca as cotações em tempo real e lida com o formato MultiIndex do YFinance"""
+def obter_cotacoes():
     df_invest = ler_planilha("Investimentos")
     if df_invest.empty: return {}
     
-    # Previne erros se a coluna vier com espaços invisíveis
+    # Previne quebra caso a coluna venha com espaço extra do Excel
     df_invest.columns = [str(c).strip() for c in df_invest.columns]
     if 'Ativo' not in df_invest.columns: return {}
     
@@ -31,30 +49,20 @@ def obter_cotacoes_corrigido():
             tickers_yf.append(a_str)
             
     if not tickers_yf: return {}
-    if 'BRL=X' not in tickers_yf:
-        tickers_yf.append('BRL=X')
+    if 'BRL=X' not in tickers_yf: tickers_yf.append('BRL=X')
 
     try:
         df_raw = yf.download(list(set(tickers_yf)), period="5d", progress=False, ignore_tz=True)
         if df_raw.empty: return {}
 
         if isinstance(df_raw.columns, pd.MultiIndex):
-            lvl_0 = df_raw.columns.get_level_values(0)
-            lvl_1 = df_raw.columns.get_level_values(1)
-            
-            if 'Adj Close' in lvl_0: df_prices = df_raw['Adj Close']
-            elif 'Close' in lvl_0: df_prices = df_raw['Close']
-            elif 'Adj Close' in lvl_1: df_prices = df_raw.xs('Adj Close', axis=1, level=1)
-            elif 'Close' in lvl_1: df_prices = df_raw.xs('Close', axis=1, level=1)
-            else: return {} 
+            if 'Adj Close' in df_raw.columns.get_level_values(0): df_prices = df_raw['Adj Close']
+            elif 'Close' in df_raw.columns.get_level_values(0): df_prices = df_raw['Close']
+            else: df_prices = df_raw.xs('Close', axis=1, level=1)
         else:
             col_target = 'Adj Close' if 'Adj Close' in df_raw.columns else 'Close'
-            if col_target in df_raw.columns:
-                df_prices = df_raw[[col_target]].copy()
-                df_prices.columns = [tickers_yf[0]]
-            else:
-                df_prices = df_raw.iloc[:, [0]].copy()
-                df_prices.columns = [tickers_yf[0]]
+            if col_target in df_raw.columns: df_prices = df_raw[[col_target]]
+            else: df_prices = df_raw.iloc[:, [0]]
 
         if isinstance(df_prices, pd.Series):
             df_prices = df_prices.to_frame(name=tickers_yf[0])
@@ -64,9 +72,11 @@ def obter_cotacoes_corrigido():
         
         for col in df_prices.columns:
             if col == 'BRL=X': continue
-            preco = df_prices[col].iloc[-1]
-            if pd.isna(preco): continue
-                
+            # Pula falhas isoladas de ativos como o FWRA
+            s_valid = df_prices[col].dropna()
+            if s_valid.empty: continue
+            
+            preco = s_valid.iloc[-1]
             if not col.endswith('.SA'):
                 preco = preco * dolar_atual
                 
@@ -79,7 +89,6 @@ def obter_cotacoes_corrigido():
 
 
 def normalizar_categoria(cat_str):
-    """Tradutor Universal para agrupar tudo que significa a mesma coisa no mesmo balde."""
     c = str(cat_str).strip().upper()
     if c in ["IPCA", "RF", "RENDA FIXA", "TESOURO", "PREFIXADO", "CDI", "SELIC"]: return "Renda Fixa"
     if c in ["AÇÕES", "ACOES", "AÇÃO", "ACAO", "BRASIL"]: return "Ações"
@@ -89,11 +98,14 @@ def normalizar_categoria(cat_str):
     if c in ["ETFS", "ETF"]: return "ETFs"
     return str(cat_str).strip()
 
+
 def motor_de_aportes(email, valor_aporte, dividir=True):
-    """Cérebro matemático: Calcula as recomendações de compra otimizando trocos e lotes reais."""
     df_conf = ler_planilha("Configuracao")
     df_ativos_conf = ler_planilha("Ativos_Config")
     df_invest = ler_planilha("Investimentos")
+
+    # Blindagem de Colunas no Config
+    if not df_conf.empty: df_conf.columns = [str(c).strip() for c in df_conf.columns]
 
     if df_conf.empty or email not in df_conf['Email'].astype(str).str.strip().str.lower().values:
         return [], valor_aporte, None, "Metas de Alocação Macro não definidas na Configuração."
@@ -104,33 +116,31 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     df_conf['Email'] = df_conf['Email'].astype(str).str.strip().str.lower()
     user_conf = df_conf[df_conf['Email'] == email].iloc[0].to_dict()
 
-    peso_rv = float(user_conf.get('RV', 50)) / 100.0
-    peso_br = float(user_conf.get('RV_Brasil', 50)) / 100.0
-    peso_ex = float(user_conf.get('RV_Exterior', 50)) / 100.0
+    peso_rv = limpa_numero_seguro(user_conf.get('RV', 50)) / 100.0
+    peso_br = limpa_numero_seguro(user_conf.get('RV_Brasil', 50)) / 100.0
+    peso_ex = limpa_numero_seguro(user_conf.get('RV_Exterior', 50)) / 100.0
 
     cat_targets = {
-        "Renda Fixa": float(user_conf.get('RF', 50)) / 100.0,
-        "Ações": peso_rv * peso_br * (float(user_conf.get('BR_Acoes', 50)) / 100.0),
-        "FIIs": peso_rv * peso_br * (float(user_conf.get('BR_FIIs', 50)) / 100.0),
-        "Stocks": peso_rv * peso_ex * (float(user_conf.get('EX_Stocks', 40)) / 100.0),
-        "REITs": peso_rv * peso_ex * (float(user_conf.get('EX_REITs', 30)) / 100.0),
-        "ETFs": peso_rv * peso_ex * (float(user_conf.get('EX_ETFs', 30)) / 100.0),
+        "Renda Fixa": limpa_numero_seguro(user_conf.get('RF', 50)) / 100.0,
+        "Ações": peso_rv * peso_br * (limpa_numero_seguro(user_conf.get('BR_Acoes', 50)) / 100.0),
+        "FIIs": peso_rv * peso_br * (limpa_numero_seguro(user_conf.get('BR_FIIs', 50)) / 100.0),
+        "Stocks": peso_rv * peso_ex * (limpa_numero_seguro(user_conf.get('EX_Stocks', 40)) / 100.0),
+        "REITs": peso_rv * peso_ex * (limpa_numero_seguro(user_conf.get('EX_REITs', 30)) / 100.0),
+        "ETFs": peso_rv * peso_ex * (limpa_numero_seguro(user_conf.get('EX_ETFs', 30)) / 100.0),
     }
 
     df_ativos_conf['Email'] = df_ativos_conf['Email'].astype(str).str.strip().str.lower()
     df_user_ativos = df_ativos_conf[df_ativos_conf['Email'] == email].copy()
     
-    # Chama a função nova blindada
-    cotacoes_dict = obter_cotacoes_corrigido()
+    cotacoes_dict = obter_cotacoes()
 
-    # --- 1. LER ATIVOS ALVOS OFICIAIS ---
     ativos_alvos = []
     for _, row in df_user_ativos.iterrows():
         cat = normalizar_categoria(row['Categoria'])
         if cat == "Renda Fixa": continue 
         ativo = str(row['Ativo']).strip().upper()
         val_peso = row.get('Peso') if pd.notna(row.get('Peso')) else row.get('Peso (%)', 0)
-        peso_global = cat_targets.get(cat, 0) * (float(val_peso) / 100.0)
+        peso_global = cat_targets.get(cat, 0) * (limpa_numero_seguro(val_peso) / 100.0)
         if ativo and ativo != "NAN":
             ativos_alvos.append({'Categoria': cat, 'Ativo': ativo, 'PesoGlobal': peso_global})
 
@@ -144,8 +154,11 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     else:
         df_alvos = pd.DataFrame(columns=['Categoria', 'Ativo', 'PesoGlobal', 'Is_Target'])
 
-    # --- 2. LER ESTOQUE DA CARTEIRA REAL ---
     df_carteira = pd.DataFrame(columns=['Categoria', 'Ativo', 'TotalAtual'])
+    
+    # Blindagem de Colunas no Investimentos
+    if not df_invest.empty: df_invest.columns = [str(c).strip() for c in df_invest.columns]
+    
     if not df_invest.empty and 'Email' in df_invest.columns:
         df_invest['Email'] = df_invest['Email'].astype(str).str.strip().str.lower()
         df_user_invest = df_invest[df_invest['Email'] == email].copy()
@@ -153,30 +166,23 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         if not df_user_invest.empty:
             df_user_invest['Ativo'] = df_user_invest['Ativo'].astype(str).str.strip().str.upper()
             df_user_invest['Categoria'] = df_user_invest['Categoria'].apply(normalizar_categoria)
-            df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(extrair_numero_br)
+            # Lê as quantidades perfeitamente
+            df_user_invest['Quantidade'] = df_user_invest['Quantidade'].apply(limpa_numero_seguro)
             df_user_invest['PrecoLive'] = df_user_invest['Ativo'].map(cotacoes_dict).fillna(0.0)
             df_user_invest['TotalAtual'] = df_user_invest['Quantidade'] * df_user_invest['PrecoLive']
+            
+            # Localiza a coluna de preço independente se ela se chama 'Preço' ou 'PrecoMedio'
+            col_preco = next((c for c in df_user_invest.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), 'Preco')
 
             for idx_inv, row_inv in df_user_invest.iterrows():
                 if row_inv['Categoria'] == "Renda Fixa" and row_inv['TotalAtual'] == 0:
-                    try:
-                        preco_digitado = float(str(row_inv.get('Preco', '0')).replace('.', '').replace(',', '.'))
-                        df_user_invest.at[idx_inv, 'TotalAtual'] = row_inv['Quantidade'] * preco_digitado
-                    except:
-                        pass
+                    preco_digitado = limpa_numero_seguro(row_inv.get(col_preco, 0))
+                    df_user_invest.at[idx_inv, 'TotalAtual'] = row_inv['Quantidade'] * preco_digitado
 
             df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
                 'TotalAtual': 'sum'
             }).reset_index()
 
-            # FIX: Concentra o bolo da Renda Fixa num ativo coringa para bater a meta
-            total_rf = df_carteira[df_carteira['Categoria'] == 'Renda Fixa']['TotalAtual'].sum()
-            df_carteira = df_carteira[df_carteira['Categoria'] != 'Renda Fixa']
-            if total_rf > 0:
-                df_rf = pd.DataFrame([{'Categoria': 'Renda Fixa', 'Ativo': 'OPORTUNIDADE DE RENDA FIXA', 'TotalAtual': total_rf}])
-                df_carteira = pd.concat([df_carteira, df_rf], ignore_index=True)
-
-    # --- 3. MATEMÁTICA E CÁLCULO DE GAPS ---
     total_atual = df_carteira['TotalAtual'].sum() if not df_carteira.empty else 0
     total_futuro = total_atual + valor_aporte 
     
@@ -190,7 +196,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     df_calc['Falta_Comprar'] = df_calc['ValorAlvo'] - df_calc['TotalAtual']
     df_calc['TotalAtual_Original'] = df_calc['TotalAtual'].copy()
 
-    # --- PREPARAÇÃO DO TERMÔMETRO VISUAL (RESUMO MACRO) ---
     df_resumo_macro = df_calc.groupby('Categoria').agg(
         Alvo=('ValorAlvo', 'sum'),
         Atual=('TotalAtual', 'sum')
@@ -204,21 +209,17 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         axis=1
     )
 
-    # --- 4. ALOCAÇÃO INTELIGENTE (DIVIDIR OU INTEGRAL) ---
     compras_dict = {}
     aporte_restante = valor_aporte
     
-    # REGRA DE OURO: Proíbe alocar dinheiro em categorias que já passaram do alvo!
-    categorias_bloqueadas = df_resumo_macro[df_resumo_macro['Status'] == '🟡 Acima da Meta']['Categoria'].tolist()
+    # REGRA DE REBALANCEAMENTO: Proíbe alocar dinheiro onde já estourou a meta!
+    cat_bloqueadas = df_resumo_macro[df_resumo_macro['Status'] == '🟡 Acima da Meta']['Categoria'].tolist()
+    df_disp = df_calc[(df_calc['Is_Target'] == True) & (~df_calc['Categoria'].isin(cat_bloqueadas))].copy()
     
-    # Filtra os ativos alvos removendo aqueles que pertencem às categorias bloqueadas
-    df_disp = df_calc[(df_calc['Is_Target'] == True) & (~df_calc['Categoria'].isin(categorias_bloqueadas))].copy()
-    
-    # Fallback de segurança: Se tudo estiver bloqueado, libera tudo de volta para dividir igualmente
+    # Se por acaso todas estiverem acima da meta, libera geral para não travar o aporte
     if df_disp.empty:
         df_disp = df_calc[df_calc['Is_Target'] == True].copy()
     
-    # Prepara a estrutura local para rastrear as compras
     for idx, row in df_disp.iterrows():
         ativo = row['Ativo']
         compras_dict[ativo] = {
@@ -235,7 +236,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         }
 
     if not dividir:
-        # Aporte Integral: Aloca 100% no ativo mais defasado da carteira (dentro das liberadas)
         df_disp = df_disp.sort_values(by='Falta_Comprar', ascending=False)
         if not df_disp.empty:
             row = df_disp.iloc[0]
@@ -263,7 +263,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
             aporte_restante -= gasto
 
     else:
-        # Aporte Dividido: Passo 1 - Alocação Proporcional Mágica
         df_gap = df_disp[df_disp['Falta_Comprar'] > 0]
         total_gap = df_gap['Falta_Comprar'].sum()
         
@@ -277,7 +276,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 
                 if d['Is_RV'] and preco > 0:
                     if d['Is_BR']:
-                        qtd = int(alocacao_teorica / preco) # Arredonda pra baixo (cotas cheias)
+                        qtd = int(alocacao_teorica / preco) 
                         gasto = qtd * preco
                     else:
                         qtd = alocacao_teorica / preco
@@ -294,7 +293,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 d['Falta_Comprar'] -= gasto
                 aporte_restante -= gasto
         else:
-            # Fallback: Se tudo já está na meta, distribui pelos pesos globais normais
             total_peso = df_disp['PesoGlobal'].sum()
             for idx, row in df_disp.iterrows():
                 ativo = row['Ativo']
@@ -322,7 +320,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 d['Falta_Comprar'] -= gasto
                 aporte_restante -= gasto
 
-        # Aporte Dividido: Passo 2 - Otimizador de Trocos (Greedy)
         comprou_no_loop = True
         while aporte_restante > 0.01 and comprou_no_loop:
             comprou_no_loop = False
@@ -354,7 +351,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                     comprou_no_loop = True
                     break
 
-    # --- 5. MONTAGEM FINAL DO EXTRATO DE COMPRAS ---
     compras = []
     ordem = 1
     for d in sorted(compras_dict.values(), key=lambda x: x['Valor'], reverse=True):
@@ -411,11 +407,10 @@ def render():
                 st.error(f"⚠️ {erro}")
                 return
                 
-        # --- NOVO: TERMÔMETRO DA CARTEIRA ---
         st.markdown("---")
         st.subheader("📊 Termômetro da Carteira (Antes do Aporte)")
         
-        # MÁGICA VISUAL: Formata os percentuais para ficarem bonitos como "26,20%"
+        # Formata visualmente como "26,20%" na tela, sem estragar os cálculos reais no banco de dados
         st.dataframe(
             df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.format({
                 'Alvo (%)': "{:.2f}%",
