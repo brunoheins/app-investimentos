@@ -432,7 +432,7 @@ def render():
                 lambda x: 'color: #00C851' if '🟢' in str(x) else ('color: #ff4444' if '🔴' in str(x) else 'color: #ffbb33'), 
                 subset=['Status']
             ),
-            use_container_width=True,
+            width='stretch',  # Atualizado para o novo padrão do Streamlit
             hide_index=True
         )
 
