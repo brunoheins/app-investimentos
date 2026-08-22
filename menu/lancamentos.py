@@ -24,14 +24,14 @@ def render():
     # --- BOTÃO 1 ATUALIZADO ---
     c_aba1.button(
         "💰 1. Aporte / Saque de Caixa", 
-        use_container_width=True, 
+        width='stretch', 
         on_click=mudar_aba_lancamento, args=("Depósitos",),
         type="primary" if st.session_state.aba_lancamento == "Depósitos" else "secondary"
     )
 
     c_aba2.button(
         "🛒 2. Lançamento de Ativos", 
-        use_container_width=True, 
+        width='stretch', 
         on_click=mudar_aba_lancamento, args=("Compras",),
         type="primary" if st.session_state.aba_lancamento == "Compras" else "secondary"
     )
@@ -57,7 +57,7 @@ def render():
             data_deposito = col1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
             valor_deposito = col2.number_input("Valor (R$)", min_value=0.00, value=1000.00, step=100.0, format="%.2f")
             
-            submit = st.form_submit_button("💾 Salvar Movimentação", use_container_width=True, type="primary")
+            submit = st.form_submit_button("💾 Salvar Movimentação", width='stretch', type="primary")
             if submit:
                 data_str = data_deposito.strftime("%d/%m/%Y")
                 
@@ -91,7 +91,7 @@ def render():
             opcao_est = c_num.selectbox("Estratégia do Aporte:", ["Dividir pelo Objetivo", "Aporte Integral (1 Ativo)"])
             dividir = "Dividir" in opcao_est
             
-            if c_btn.button("Gerar Dica Rápida", use_container_width=True, type="primary"):
+            if c_btn.button("Gerar Dica Rápida", width='stretch', type="primary"):
                 with st.spinner("Calculando defasagem..."):
                     compras, resto, df_macro, erro = motor_de_aportes(st.session_state.email, val_simul, dividir)
                     st.session_state.dicas_salvas = {'compras': compras, 'resto': resto, 'erro': erro}
@@ -178,7 +178,7 @@ def render():
 
             st.info("💡 **Dica corporativa:** Para Bonificação ou Grupamento, lance o valor como **R$ 0,00** para não alterar o capital investido.")
 
-            if st.button("💾 Registrar Operação", use_container_width=True, type="primary"):
+            if st.button("💾 Registrar Operação", width='stretch', type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
                 qtd_final = qtd_compra if "Entrada" in tipo_op else -qtd_compra
                 
@@ -217,12 +217,12 @@ def render():
                     df_depositos_editado = st.data_editor(
                         meus_depositos, 
                         num_rows="dynamic",
-                        use_container_width=True, 
+                        width='stretch', 
                         hide_index=True,
                         key="editor_depositos"
                     )
                     
-                    if st.button("💾 Salvar Alterações de Caixa", use_container_width=True, type="primary"):
+                    if st.button("💾 Salvar Alterações de Caixa", width='stretch', type="primary"):
                         with st.spinner("Atualizando caixa..."):
                             if atualizar_historico_usuario(st.session_state.email, "Depositos", df_depositos_editado):
                                 st.success("Caixa atualizado com sucesso!")
@@ -246,12 +246,12 @@ def render():
                     df_compras_editado = st.data_editor(
                         minhas_compras, 
                         num_rows="dynamic", 
-                        use_container_width=True, 
+                        width='stretch', 
                         hide_index=True,
                         key="editor_compras"
                     )
                     
-                    if st.button("💾 Salvar Alterações de Ativos", use_container_width=True, type="primary"):
+                    if st.button("💾 Salvar Alterações de Ativos", width='stretch', type="primary"):
                         with st.spinner("Atualizando carteira..."):
                             if atualizar_historico_usuario(st.session_state.email, "Investimentos", df_compras_editado):
                                 st.success("Movimentações atualizadas com sucesso!")
