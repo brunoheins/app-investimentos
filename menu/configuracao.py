@@ -225,7 +225,7 @@ def render():
             fig_resumo = px.pie(df_resumo_grafico, values='% Alvo Final', names="Categoria", hole=0.5)
             fig_resumo.update_traces(textinfo='label+percent')
             fig_resumo.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
-            st.plotly_chart(fig_resumo, use_container_width=True)
+            st.plotly_chart(fig_resumo, width='stretch')
 
         st.session_state.backup_macro.update({
             'rf': st.session_state.rf_val, 'rv': st.session_state.rv_val,
@@ -367,7 +367,7 @@ def render():
                 fig_setores = px.pie(df_group_setor, values='Peso (%)', names='Setor', hole=0.4)
                 fig_setores.update_traces(textinfo='percent', textposition='inside')
                 fig_setores.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=True, legend=dict(orientation="h", y=-0.2))
-                st.plotly_chart(fig_setores, use_container_width=True)
+                st.plotly_chart(fig_setores, width='stretch')
             else:
                 st.info("Preencha a tabela para ver a distribuição.")
 
@@ -670,5 +670,5 @@ def render():
                     yaxis=dict(tickformat=",.2f")
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
                 st.caption("Nota: Este backtest adota a premissa de que você comprou frações exatas e fez o rebalanceamento invisível perfeito todos os meses seguindo sua alocação macro e micro atual.")
