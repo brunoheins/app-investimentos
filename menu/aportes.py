@@ -7,7 +7,7 @@ from utils import ler_planilha, formata_br
 # ARMADURA NUMÉRICA UNIVERSAL
 # ==========================================
 def limpa_numero_seguro(val):
-    """Lê com perfeição tanto números americanos do Excel quanto formato PT-BR"""
+    """Garante que a planilha seja lida sem zerar, independente de ser pt-BR ou US"""
     if pd.isna(val) or str(val).strip() == '': return 0.0
     if isinstance(val, (int, float)): return float(val)
     
@@ -27,14 +27,13 @@ def limpa_numero_seguro(val):
 # ==========================================
 @st.cache_data(ttl=900, show_spinner=False)
 def obter_cotacoes(email_usuario):
-    """Busca cotações APENAS para os ativos do usuário logado"""
+    """Busca cotações APENAS para os ativos do usuário logado (Isolando erros como o do FWRA)"""
     df_invest = ler_planilha("Investimentos")
     if df_invest.empty: return {}
     
     df_invest.columns = [str(c).strip() for c in df_invest.columns]
     if 'Ativo' not in df_invest.columns or 'Email' not in df_invest.columns: return {}
     
-    # FIX: Filtra os ativos para buscar APENAS os do usuário logado (Isola erros de terceiros)
     df_user = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email_usuario]
     ativos = df_user['Ativo'].dropna().unique()
     
@@ -144,9 +143,9 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     df_ativos_conf['Email'] = df_ativos_conf['Email'].astype(str).str.strip().str.lower()
     df_user_ativos = df_ativos_conf[df_ativos_conf['Email'] == email].copy()
     
-    # Passa o email para a API buscar apenas os seus ativos
     cotacoes_dict = obter_cotacoes(email)
 
+    # --- 1. LER ATIVOS ALVOS OFICIAIS ---
     ativos_alvos = []
     for _, row in df_user_ativos.iterrows():
         cat = normalizar_categoria(row['Categoria'])
@@ -167,6 +166,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     else:
         df_alvos = pd.DataFrame(columns=['Categoria', 'Ativo', 'PesoGlobal', 'Is_Target'])
 
+    # --- 2. LER ESTOQUE DA CARTEIRA REAL ---
     df_carteira = pd.DataFrame(columns=['Categoria', 'Ativo', 'TotalAtual'])
     
     if not df_invest.empty: df_invest.columns = [str(c).strip() for c in df_invest.columns]
@@ -193,13 +193,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 'TotalAtual': 'sum'
             }).reset_index()
 
-            # Agrupa a Renda Fixa
-            total_rf = df_carteira[df_carteira['Categoria'] == 'Renda Fixa']['TotalAtual'].sum()
-            df_carteira = df_carteira[df_carteira['Categoria'] != 'Renda Fixa']
-            if total_rf > 0:
-                df_rf = pd.DataFrame([{'Categoria': 'Renda Fixa', 'Ativo': 'OPORTUNIDADE DE RENDA FIXA', 'TotalAtual': total_rf}])
-                df_carteira = pd.concat([df_carteira, df_rf], ignore_index=True)
-
+    # --- 3. MATEMÁTICA E CÁLCULO DE GAPS ---
     total_atual = df_carteira['TotalAtual'].sum() if not df_carteira.empty else 0
     total_futuro = total_atual + valor_aporte 
     
@@ -213,6 +207,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     df_calc['Falta_Comprar'] = df_calc['ValorAlvo'] - df_calc['TotalAtual']
     df_calc['TotalAtual_Original'] = df_calc['TotalAtual'].copy()
 
+    # --- PREPARAÇÃO DO TERMÔMETRO VISUAL ---
     df_resumo_macro = df_calc.groupby('Categoria').agg(
         Alvo=('ValorAlvo', 'sum'),
         Atual=('TotalAtual', 'sum')
@@ -226,15 +221,10 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         axis=1
     )
 
+    # --- 4. ALOCAÇÃO INTELIGENTE (LOGICA ORIGINAL DE DIVISÃO) ---
     compras_dict = {}
     aporte_restante = valor_aporte
-    
-    # REGRA DE REBALANCEAMENTO ATIVA
-    cat_bloqueadas = df_resumo_macro[df_resumo_macro['Status'] == '🟡 Acima da Meta']['Categoria'].tolist()
-    df_disp = df_calc[(df_calc['Is_Target'] == True) & (~df_calc['Categoria'].isin(cat_bloqueadas))].copy()
-    
-    if df_disp.empty:
-        df_disp = df_calc[df_calc['Is_Target'] == True].copy()
+    df_disp = df_calc[df_calc['Is_Target'] == True].copy()
     
     for idx, row in df_disp.iterrows():
         ativo = row['Ativo']
@@ -252,6 +242,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         }
 
     if not dividir:
+        # Aporte Integral: Aloca 100% no ativo mais defasado da carteira
         df_disp = df_disp.sort_values(by='Falta_Comprar', ascending=False)
         if not df_disp.empty:
             row = df_disp.iloc[0]
@@ -279,6 +270,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
             aporte_restante -= gasto
 
     else:
+        # Aporte Dividido: Passo 1 - Alocação Proporcional Mágica (ORIGINAL)
         df_gap = df_disp[df_disp['Falta_Comprar'] > 0]
         total_gap = df_gap['Falta_Comprar'].sum()
         
@@ -336,6 +328,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 d['Falta_Comprar'] -= gasto
                 aporte_restante -= gasto
 
+        # Aporte Dividido: Passo 2 - Otimizador de Trocos (Greedy Original)
         comprou_no_loop = True
         while aporte_restante > 0.01 and comprou_no_loop:
             comprou_no_loop = False
@@ -367,6 +360,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                     comprou_no_loop = True
                     break
 
+    # --- 5. MONTAGEM FINAL DO EXTRATO DE COMPRAS ---
     compras = []
     ordem = 1
     for d in sorted(compras_dict.values(), key=lambda x: x['Valor'], reverse=True):
@@ -374,17 +368,13 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
             qtd_sugerida_str = "-"
             qtd_faltante_str = "-"
             if d['Is_RV']:
-                if d['PrecoRef'] > 0:
-                    qtd_faltante = max(0, d['Qtd_Alvo'] - d['Qtd_Atual'])
-                    if d['Is_BR']:
-                        qtd_sugerida_str = f"{int(d['Qtd'])} un"
-                        qtd_faltante_str = f"{int(qtd_faltante)} un"
-                    else:
-                        qtd_sugerida_str = f"{d['Qtd']:.4f} un".replace('.', ',')
-                        qtd_faltante_str = f"{qtd_faltante:.4f} un".replace('.', ',')
+                qtd_faltante = max(0, d['Qtd_Alvo'] - d['Qtd_Atual'])
+                if d['Is_BR']:
+                    qtd_sugerida_str = f"{int(d['Qtd'])} un"
+                    qtd_faltante_str = f"{int(qtd_faltante)} un"
                 else:
-                    qtd_sugerida_str = "Cotação Offline"
-                    qtd_faltante_str = "-"
+                    qtd_sugerida_str = f"{d['Qtd']:.4f} un".replace('.', ',')
+                    qtd_faltante_str = f"{qtd_faltante:.4f} un".replace('.', ',')
                     
             compras.append({
                 'Ordem': ordem,
@@ -430,6 +420,7 @@ def render():
         st.markdown("---")
         st.subheader("📊 Termômetro da Carteira (Antes do Aporte)")
         
+        # Máscara visual bonita ("26,20%") mantendo a matemática do banco intacta
         st.dataframe(
             df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.format({
                 'Alvo (%)': "{:.2f}%",
