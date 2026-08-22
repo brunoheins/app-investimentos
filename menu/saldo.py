@@ -375,7 +375,7 @@ def render():
             yaxis=dict(tickformat=",.2f")
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # --- 8. AUDITORIA VISUAL ---
     st.markdown("<br>", unsafe_allow_html=True)
@@ -387,11 +387,11 @@ def render():
             if not df_dep_agrupado.empty:
                 df_dep_exibicao = df_dep_agrupado.copy()
                 df_dep_exibicao['Valor'] = df_dep_exibicao['Valor'].apply(formata_br)
-                st.dataframe(df_dep_exibicao, hide_index=True, use_container_width=True)
+                st.dataframe(df_dep_exibicao, hide_index=True, width='stretch')
             else:
                 st.info("Nenhuma movimentação agrupada.")
         with c_dbg2:
             st.markdown("**2. Acúmulo no Gráfico**")
             df_dbg = df_timeline[['MesExibicao', 'TotalAportado', 'ValorMercado']].copy()
             df_dbg.rename(columns={'TotalAportado': 'Linha Cinza', 'ValorMercado': 'Linha Colorida'}, inplace=True)
-            st.dataframe(df_dbg, hide_index=True, use_container_width=True)
+            st.dataframe(df_dbg, hide_index=True, width='stretch')
