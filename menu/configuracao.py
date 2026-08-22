@@ -43,15 +43,15 @@ def render():
                 user_conf = row.iloc[0].to_dict()
         
         st.session_state.backup_macro = {
-            'rf': float(user_conf.get('RF', 50.0)),
-            'rv': float(user_conf.get('RV', 50.0)),
-            'rv_br': float(user_conf.get('RV_Brasil', 50.0)),
-            'rv_ex': float(user_conf.get('RV_Exterior', 50.0)),
-            'br_ac': float(user_conf.get('BR_Acoes', 50.0)),
-            'br_fii': float(user_conf.get('BR_FIIs', 50.0)),
-            'ex_st': float(user_conf.get('EX_Stocks', 40.0)),
-            'ex_re': float(user_conf.get('EX_REITs', 30.0)),
-            'ex_et': float(user_conf.get('EX_ETFs', 30.0))
+            'rf': float(str(user_conf.get('RF', 50.0)).replace(',', '.')),
+            'rv': float(str(user_conf.get('RV', 50.0)).replace(',', '.')),
+            'rv_br': float(str(user_conf.get('RV_Brasil', 50.0)).replace(',', '.')),
+            'rv_ex': float(str(user_conf.get('RV_Exterior', 50.0)).replace(',', '.')),
+            'br_ac': float(str(user_conf.get('BR_Acoes', 50.0)).replace(',', '.')),
+            'br_fii': float(str(user_conf.get('BR_FIIs', 50.0)).replace(',', '.')),
+            'ex_st': float(str(user_conf.get('EX_Stocks', 40.0)).replace(',', '.')),
+            'ex_re': float(str(user_conf.get('EX_REITs', 30.0)).replace(',', '.')),
+            'ex_et': float(str(user_conf.get('EX_ETFs', 30.0)).replace(',', '.'))
         }
 
     # ==========================================
@@ -184,14 +184,20 @@ def render():
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("💾 Salvar Configuração Macro", use_container_width=True, type="primary"):
+                # CÓDIGO BLINDADO: Salva estritamente como texto, com 2 casas decimais e vírgula!
                 dados_para_salvar = {
-                    'RF': st.session_state.rf_val, 'RV': st.session_state.rv_val, 
-                    'RV_Brasil': st.session_state.rv_br_val, 'RV_Exterior': st.session_state.rv_ex_val,
-                    'BR_Acoes': st.session_state.br_ac_val, 'BR_FIIs': st.session_state.br_fii_val, 
-                    'EX_Stocks': st.session_state.ex_st_val, 'EX_REITs': st.session_state.ex_re_val, 'EX_ETFs': st.session_state.ex_et_val
+                    'RF': f"{st.session_state.rf_val:.2f}".replace('.', ','), 
+                    'RV': f"{st.session_state.rv_val:.2f}".replace('.', ','), 
+                    'RV_Brasil': f"{st.session_state.rv_br_val:.2f}".replace('.', ','), 
+                    'RV_Exterior': f"{st.session_state.rv_ex_val:.2f}".replace('.', ','),
+                    'BR_Acoes': f"{st.session_state.br_ac_val:.2f}".replace('.', ','), 
+                    'BR_FIIs': f"{st.session_state.br_fii_val:.2f}".replace('.', ','), 
+                    'EX_Stocks': f"{st.session_state.ex_st_val:.2f}".replace('.', ','), 
+                    'EX_REITs': f"{st.session_state.ex_re_val:.2f}".replace('.', ','), 
+                    'EX_ETFs': f"{st.session_state.ex_et_val:.2f}".replace('.', ',')
                 }
                 if salvar_configuracao(st.session_state.email, dados_para_salvar):
-                    st.success("✅ Metas atualizadas e persistidas com sucesso!")
+                    st.success("✅ Metas atualizadas e persistidas com sucesso! (Precisão travada em 2 casas decimais)")
 
         with col_direita:
             st.subheader("🎯 Resumo do Objetivo")
@@ -216,7 +222,8 @@ def render():
             df_resumo_grafico = df_resumo[df_resumo["% Alvo Final"] > 0]
             df_resumo['% Alvo Final'] = df_resumo['% Alvo Final'].map('{:.2f}%'.format)
             
-            st.dataframe(df_resumo, use_container_width=True, hide_index=True)
+            # ATUALIZADO: width='stretch' substitui use_container_width=True
+            st.dataframe(df_resumo, width='stretch', hide_index=True)
             
             fig_resumo = px.pie(df_resumo_grafico, values='% Alvo Final', names="Categoria", hole=0.5)
             fig_resumo.update_traces(textinfo='label+percent')
@@ -280,21 +287,24 @@ def render():
             df_inicial = pd.DataFrame({"Ativo": [""], "Peso (%)": [100.0], "Setor": [""]})
         else:
             df_cat_salvo.rename(columns={'Peso': 'Peso (%)'}, inplace=True)
+            # Lê o número com vírgula do banco e transforma em float para o editor
+            df_cat_salvo['Peso (%)'] = df_cat_salvo['Peso (%)'].astype(str).str.replace(',', '.').astype(float)
             df_cat_salvo['Setor'] = df_cat_salvo['Setor'].replace(['Não Classificado', 'nan', 'None'], '')
             df_inicial = df_cat_salvo
 
         col_tabela, col_graf_setor = st.columns([1.5, 1], gap="medium")
         
         with col_tabela:
+            # ATUALIZADO: width='stretch' substitui use_container_width=True
             df_editado = st.data_editor(
                 df_inicial,
                 num_rows="dynamic",
-                use_container_width=True,
+                width='stretch',
                 hide_index=True, 
                 key=f"editor_cat_v2_{cat_selecionada}",
                 column_config={
                     "Ativo": st.column_config.TextColumn("Ativo (Ticker)", required=True),
-                    "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.5, format="%.2f"),
+                    "Peso (%)": st.column_config.NumberColumn("Peso (%)", min_value=0.0, max_value=100.0, step=0.01, format="%.2f"),
                     "Setor": st.column_config.TextColumn(
                         "Setor / Segmento", 
                         help="Deixe em branco e o sistema preencherá automaticamente ao salvar!", 
@@ -316,6 +326,9 @@ def render():
                 if st.button(f"💾 Salvar {cat_selecionada}", key=f"btn_save_{cat_selecionada}", use_container_width=True):
                     df_para_salvar = df_editado.copy()
                     df_para_salvar.rename(columns={'Peso (%)': 'Peso'}, inplace=True)
+                    
+                    # CÓDIGO BLINDADO: Força 2 casas decimais e transforma o ponto em vírgula antes de salvar!
+                    df_para_salvar['Peso'] = pd.to_numeric(df_para_salvar['Peso'], errors='coerce').apply(lambda x: f"{x:.2f}".replace('.', ','))
                     
                     with st.spinner("Validando ativos na Bolsa..."):
                         ativos_invalidos = []
@@ -342,7 +355,7 @@ def render():
                             st.error(f"❌ **Ativo(s) Inválido(s):** Não encontramos `{', '.join(ativos_invalidos)}` no Yahoo Finance. Verifique se o código está correto antes de salvar.")
                         else:
                             if salvar_ativos_categoria(st.session_state.email, cat_selecionada, df_para_salvar):
-                                st.success("Todos os ativos validados e salvos!")
+                                st.success("Todos os ativos validados e salvos com formatação correta!")
                                 st.rerun()
 
         with col_graf_setor:
@@ -396,7 +409,7 @@ def render():
             for _, row in df_ativos_user.iterrows():
                 cat = str(row.get('Categoria', '')).strip()
                 ativo = str(row.get('Ativo', '')).strip().upper()
-                peso_interno = float(row.get('Peso', 0)) / 100.0
+                peso_interno = float(str(row.get('Peso', 0)).replace(',', '.')) / 100.0
                 
                 peso_global = cat_targets.get(cat, 0) * peso_interno
                 if peso_global > 0 and ativo and ativo != "NAN":
