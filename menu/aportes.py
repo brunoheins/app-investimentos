@@ -1,6 +1,82 @@
 import streamlit as st
 import pandas as pd
-from utils import ler_planilha, obter_cotacoes, extrair_numero_br, formata_br
+import yfinance as yf
+from utils import ler_planilha, extrair_numero_br, formata_br
+
+# ==========================================
+# MÁGICA ANTI-QUEBRA DO YAHOO FINANCE (NOVO)
+# ==========================================
+@st.cache_data(ttl=900, show_spinner=False)
+def obter_cotacoes_corrigido():
+    """Busca as cotações em tempo real e lida com o formato MultiIndex do YFinance"""
+    df_invest = ler_planilha("Investimentos")
+    if df_invest.empty: return {}
+    
+    # Previne erros se a coluna vier com espaços invisíveis
+    df_invest.columns = [str(c).strip() for c in df_invest.columns]
+    if 'Ativo' not in df_invest.columns: return {}
+    
+    ativos = df_invest['Ativo'].dropna().unique()
+    tickers_yf = []
+    
+    for a in ativos:
+        a_str = str(a).strip().upper()
+        if not a_str or "TESOURO" in a_str or "CDB" in a_str or "LCI" in a_str or "LCA" in a_str:
+            continue
+            
+        import re
+        if "." not in a_str and re.search(r'\d+$', a_str):
+            tickers_yf.append(f"{a_str}.SA")
+        else:
+            tickers_yf.append(a_str)
+            
+    if not tickers_yf: return {}
+    if 'BRL=X' not in tickers_yf:
+        tickers_yf.append('BRL=X')
+
+    try:
+        df_raw = yf.download(list(set(tickers_yf)), period="5d", progress=False, ignore_tz=True)
+        if df_raw.empty: return {}
+
+        if isinstance(df_raw.columns, pd.MultiIndex):
+            lvl_0 = df_raw.columns.get_level_values(0)
+            lvl_1 = df_raw.columns.get_level_values(1)
+            
+            if 'Adj Close' in lvl_0: df_prices = df_raw['Adj Close']
+            elif 'Close' in lvl_0: df_prices = df_raw['Close']
+            elif 'Adj Close' in lvl_1: df_prices = df_raw.xs('Adj Close', axis=1, level=1)
+            elif 'Close' in lvl_1: df_prices = df_raw.xs('Close', axis=1, level=1)
+            else: return {} 
+        else:
+            col_target = 'Adj Close' if 'Adj Close' in df_raw.columns else 'Close'
+            if col_target in df_raw.columns:
+                df_prices = df_raw[[col_target]].copy()
+                df_prices.columns = [tickers_yf[0]]
+            else:
+                df_prices = df_raw.iloc[:, [0]].copy()
+                df_prices.columns = [tickers_yf[0]]
+
+        if isinstance(df_prices, pd.Series):
+            df_prices = df_prices.to_frame(name=tickers_yf[0])
+
+        cotacoes = {}
+        dolar_atual = df_prices['BRL=X'].iloc[-1] if 'BRL=X' in df_prices.columns else 5.50
+        
+        for col in df_prices.columns:
+            if col == 'BRL=X': continue
+            preco = df_prices[col].iloc[-1]
+            if pd.isna(preco): continue
+                
+            if not col.endswith('.SA'):
+                preco = preco * dolar_atual
+                
+            chave = col.replace('.SA', '')
+            cotacoes[chave] = preco
+            
+        return cotacoes
+    except Exception as e:
+        return {}
+
 
 def normalizar_categoria(cat_str):
     """Tradutor Universal para agrupar tudo que significa a mesma coisa no mesmo balde."""
@@ -44,7 +120,8 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     df_ativos_conf['Email'] = df_ativos_conf['Email'].astype(str).str.strip().str.lower()
     df_user_ativos = df_ativos_conf[df_ativos_conf['Email'] == email].copy()
     
-    cotacoes_dict = obter_cotacoes()
+    # Chama a função nova blindada
+    cotacoes_dict = obter_cotacoes_corrigido()
 
     # --- 1. LER ATIVOS ALVOS OFICIAIS ---
     ativos_alvos = []
@@ -92,6 +169,13 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 'TotalAtual': 'sum'
             }).reset_index()
 
+            # FIX: Concentra o bolo da Renda Fixa num ativo coringa para bater a meta
+            total_rf = df_carteira[df_carteira['Categoria'] == 'Renda Fixa']['TotalAtual'].sum()
+            df_carteira = df_carteira[df_carteira['Categoria'] != 'Renda Fixa']
+            if total_rf > 0:
+                df_rf = pd.DataFrame([{'Categoria': 'Renda Fixa', 'Ativo': 'OPORTUNIDADE DE RENDA FIXA', 'TotalAtual': total_rf}])
+                df_carteira = pd.concat([df_carteira, df_rf], ignore_index=True)
+
     # --- 3. MATEMÁTICA E CÁLCULO DE GAPS ---
     total_atual = df_carteira['TotalAtual'].sum() if not df_carteira.empty else 0
     total_futuro = total_atual + valor_aporte 
@@ -123,7 +207,16 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     # --- 4. ALOCAÇÃO INTELIGENTE (DIVIDIR OU INTEGRAL) ---
     compras_dict = {}
     aporte_restante = valor_aporte
-    df_disp = df_calc[df_calc['Is_Target'] == True].copy()
+    
+    # REGRA DE OURO: Proíbe alocar dinheiro em categorias que já passaram do alvo!
+    categorias_bloqueadas = df_resumo_macro[df_resumo_macro['Status'] == '🟡 Acima da Meta']['Categoria'].tolist()
+    
+    # Filtra os ativos alvos removendo aqueles que pertencem às categorias bloqueadas
+    df_disp = df_calc[(df_calc['Is_Target'] == True) & (~df_calc['Categoria'].isin(categorias_bloqueadas))].copy()
+    
+    # Fallback de segurança: Se tudo estiver bloqueado, libera tudo de volta para dividir igualmente
+    if df_disp.empty:
+        df_disp = df_calc[df_calc['Is_Target'] == True].copy()
     
     # Prepara a estrutura local para rastrear as compras
     for idx, row in df_disp.iterrows():
@@ -142,7 +235,7 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         }
 
     if not dividir:
-        # Aporte Integral: Aloca 100% no ativo mais defasado da carteira
+        # Aporte Integral: Aloca 100% no ativo mais defasado da carteira (dentro das liberadas)
         df_disp = df_disp.sort_values(by='Falta_Comprar', ascending=False)
         if not df_disp.empty:
             row = df_disp.iloc[0]
@@ -230,11 +323,9 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 aporte_restante -= gasto
 
         # Aporte Dividido: Passo 2 - Otimizador de Trocos (Greedy)
-        # Absorve todo o dinheiro que sobrou por causa de cotas arredondadas no Passo 1
         comprou_no_loop = True
         while aporte_restante > 0.01 and comprou_no_loop:
             comprou_no_loop = False
-            # Ordena e joga o troco em quem está com o maior gap no momento
             ativos_ordenados = sorted(compras_dict.values(), key=lambda x: x['Falta_Comprar'], reverse=True)
             
             for d in ativos_ordenados:
@@ -250,7 +341,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                             comprou_no_loop = True
                             break 
                     else:
-                        # Ativos exteriores e ETFs podem engolir o troco fracionário todo
                         d['Valor'] += aporte_restante
                         d['Qtd'] += aporte_restante / preco
                         d['Falta_Comprar'] -= aporte_restante
@@ -258,7 +348,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                         comprou_no_loop = True
                         break
                 else:
-                    # Renda Fixa engole trocos perfeitamente
                     d['Valor'] += aporte_restante
                     d['Falta_Comprar'] -= aporte_restante
                     aporte_restante = 0
@@ -268,7 +357,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
     # --- 5. MONTAGEM FINAL DO EXTRATO DE COMPRAS ---
     compras = []
     ordem = 1
-    # Organiza do maior montante em R$ para o menor
     for d in sorted(compras_dict.values(), key=lambda x: x['Valor'], reverse=True):
         if d['Valor'] > 0:
             qtd_sugerida_str = "-"
@@ -326,8 +414,13 @@ def render():
         # --- NOVO: TERMÔMETRO DA CARTEIRA ---
         st.markdown("---")
         st.subheader("📊 Termômetro da Carteira (Antes do Aporte)")
+        
+        # MÁGICA VISUAL: Formata os percentuais para ficarem bonitos como "26,20%"
         st.dataframe(
-            df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.map(
+            df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.format({
+                'Alvo (%)': "{:.2f}%",
+                'Atual (%)': "{:.2f}%"
+            }).map(
                 lambda x: 'color: #00C851' if '🟢' in str(x) else ('color: #ff4444' if '🔴' in str(x) else 'color: #ffbb33'), 
                 subset=['Status']
             ),
