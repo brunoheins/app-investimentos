@@ -220,6 +220,9 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         else ("🔴 Abaixo da Meta" if x['Atual (%)'] < x['Alvo (%)'] else "🟡 Acima da Meta"), 
         axis=1
     )
+    
+    # ORDENAÇÃO DECRESCENTE PELA COLUNA 'ALVO (%)'
+    df_resumo_macro = df_resumo_macro.sort_values(by='Alvo (%)', ascending=False).reset_index(drop=True)
 
     # --- 4. ALOCAÇÃO INTELIGENTE (LOGICA ORIGINAL DE DIVISÃO) ---
     compras_dict = {}
