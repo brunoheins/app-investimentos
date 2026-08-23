@@ -100,7 +100,7 @@ def render():
                     st.session_state.dicas_salvas = None 
                     
                     acao_texto = "Aporte" if "Aporte" in tipo_mov_caixa else "Saque"
-                    st.success(f"✅ {acao_texto} de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
+                    st.success(f"✅ {acao_texto} de R$ {formata_valor(abs(valor_deposito))} em {data_str} salvo com sucesso!")
                     
                     time.sleep(1.5)
                     st.rerun()
@@ -184,10 +184,10 @@ def render():
                 dolar_efetivo = (valor_total_brl / total_usd) if total_usd > 0 else 0.0
                 
                 if total_usd > 0 and valor_total_brl > 0:
-                    st.caption(f"ℹ️ **Resumo da Ordem:** Total em Dólar: **US$ {total_usd:.2f}** | Custo do Dólar (com taxas): **R$ {dolar_efetivo:.4f}**")
+                    st.caption(f"ℹ️ **Resumo da Ordem:** Total em Dólar: **US$ {formata_valor(total_usd)}** | Custo do Dólar (com taxas): **R$ {formata_preco(dolar_efetivo)}**")
                 
                 preco_unitario_brl = (valor_total_brl / qtd_compra) if qtd_compra > 0 else 0.0
-                obs_final = f"[US$ {preco_usd:.2f} | Câmbio: R$ {dolar_efetivo:.4f}] {observacao_user}".strip()
+                obs_final = f"[US$ {formata_valor(preco_usd)} | Câmbio: R$ {formata_preco(dolar_efetivo)}] {observacao_user}".strip()
 
             else:
                 st.markdown("**🇧🇷 Lançamento Nacional**")
@@ -211,10 +211,10 @@ def render():
                     st.session_state.dicas_salvas = None 
                     
                     if preco_unitario_brl == 0:
-                        st.success(f"✅ Evento de {qtd_compra} cotas salvo com sucesso para {ativo_compra}!")
+                        st.success(f"✅ Evento de {formata_qtd(qtd_compra)} cotas salvo com sucesso para {ativo_compra}!")
                     else:
                         acao = "Compra" if "Entrada" in tipo_op else "Venda"
-                        st.success(f"✅ {acao} de {ativo_compra} salva! Total da Ordem: R$ {valor_total_brl:.2f}")
+                        st.success(f"✅ {acao} de {ativo_compra} salva! Total da Ordem: R$ {formata_valor(valor_total_brl)}")
                     
                     time.sleep(2)
                     st.rerun()
