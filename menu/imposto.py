@@ -35,14 +35,12 @@ def calcular_impostos(email):
     df_user = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email].copy()
     if df_user.empty: return pd.DataFrame()
 
-    # Tenta achar a coluna de Data e Preço
     col_data = next((c for c in df_user.columns if 'data' in str(c).lower()), None)
     col_preco = next((c for c in df_user.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), None)
     
     if not col_data or not col_preco: 
         return pd.DataFrame()
 
-    # Preparação de Dados
     df_user['Data'] = pd.to_datetime(df_user[col_data], errors='coerce', dayfirst=True)
     df_user = df_user.dropna(subset=['Data']).sort_values(by='Data')
     df_user['Quantidade'] = df_user['Quantidade'].apply(limpa_numero_seguro)
@@ -52,7 +50,6 @@ def calcular_impostos(email):
     pm_dict = {}
     historico_vendas = []
 
-    # Motor de Preço Médio e Apuração de Lucros
     for _, row in df_user.iterrows():
         ativo = str(row['Ativo']).strip().upper()
         qtd = row['Quantidade']
@@ -63,23 +60,22 @@ def calcular_impostos(email):
         if ativo not in pm_dict:
             pm_dict[ativo] = {'qtd': 0.0, 'custo_total': 0.0, 'pm': 0.0}
             
-        if qtd > 0: # COMPRA
+        if qtd > 0: 
             pm_dict[ativo]['qtd'] += qtd
             pm_dict[ativo]['custo_total'] += (qtd * preco)
             if pm_dict[ativo]['qtd'] > 0:
                 pm_dict[ativo]['pm'] = pm_dict[ativo]['custo_total'] / pm_dict[ativo]['qtd']
                 
-        elif qtd < 0: # VENDA
+        elif qtd < 0: 
             qtd_vendida = abs(qtd)
             valor_venda = qtd_vendida * preco
             pm_atual = pm_dict[ativo]['pm']
             custo_venda = qtd_vendida * pm_atual
             lucro = valor_venda - custo_venda
             
-            # Baixa no estoque
             pm_dict[ativo]['qtd'] -= qtd_vendida
             pm_dict[ativo]['custo_total'] -= custo_venda
-            if pm_dict[ativo]['qtd'] <= 0.0001: # Zera sujeiras decimais
+            if pm_dict[ativo]['qtd'] <= 0.0001: 
                 pm_dict[ativo]['qtd'] = 0.0
                 pm_dict[ativo]['custo_total'] = 0.0
                 
@@ -120,7 +116,9 @@ def render():
     c_br1, c_br2 = st.columns(2, gap="large")
     
     with c_br1:
-        st.subheader("Ações (Isenção 20k)")
+        st.subheader("Ações")
+        st.caption("**Regra:** Vendas de até R$ 20.000,00 no mês são isentas. Acima disso, incide IR de 15% sobre o lucro (em swing trade). Prejuízos anteriores podem ser compensados.")
+        
         df_acoes_mes = df_mes[df_mes['Categoria'] == 'Ações']
         total_vendas_acoes = df_acoes_mes['Valor_Venda'].sum() if not df_acoes_mes.empty else 0
         lucro_acoes = df_acoes_mes['Lucro'].sum() if not df_acoes_mes.empty else 0
@@ -144,7 +142,9 @@ def render():
                 st.info(f"Você estourou o limite de vendas, mas teve Prejuízo de {formata_br(lucro_acoes)}. Nenhuma DARF devida.")
                 
     with c_br2:
-        st.subheader("FIIs (Sem Isenção)")
+        st.subheader("FIIs")
+        st.caption("**Regra:** Não existe faixa de isenção. O IR é de 20% sobre qualquer lucro obtido na venda de cotas. Prejuízos de meses anteriores podem ser compensados.")
+        
         df_fiis_mes = df_mes[df_mes['Categoria'] == 'FIIs']
         lucro_fiis = df_fiis_mes['Lucro'].sum() if not df_fiis_mes.empty else 0
         
@@ -165,7 +165,7 @@ def render():
     # SEÇÃO 2: EXTERIOR (FOCO ANUAL - AJUSTE)
     # ==========================================
     st.header("🌎 Dossiê Exterior (Ano Vigente)")
-    st.markdown("Pela Lei 14.754/2023, o imposto sobre investimentos internacionais (Stocks, REITs, ETFs) é apurado anualmente. Os rendimentos são tributados em 15%, permitindo a compensação de prejuízos dentro do mesmo ano.")
+    st.markdown("Pela Lei 14.754/2023, o imposto sobre investimentos internacionais (Stocks, REITs, ETFs) é apurado anualmente. Os lucros são tributados em **15%**, permitindo a compensação de prejuízos dentro do mesmo ano.")
     
     cats_exterior = ['Stocks', 'REITs', 'ETFs']
     df_ano_ext = df_vendas[(df_vendas['Ano'] == ano_atual) & (df_vendas['Categoria'].isin(cats_exterior))]
@@ -186,7 +186,6 @@ def render():
             c_ext3.metric("Imposto Acumulado", "R$ 0,00")
             st.success(f"Seu saldo anual no exterior é de prejuízo ({formata_br(lucro_ext_ano)}). Esse valor abaterá futuros lucros neste mesmo ano calendário.")
 
-    # Detalhamento em Tabela (Últimos 10 lançamentos de venda)
     with st.expander("Ver histórico de Vendas (Auditoria)"):
         df_exibicao = df_vendas.sort_values(by='Data', ascending=False).head(15).copy()
         df_exibicao['Data'] = df_exibicao['Data'].dt.strftime('%d/%m/%Y')
