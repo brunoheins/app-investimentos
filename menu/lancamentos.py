@@ -224,11 +224,9 @@ def render():
                 if not meus_depositos.empty:
                     meus_depositos = meus_depositos.drop(columns=['Email'])
                     
-                    # Converte a coluna para FLOAT para manter a ordenação
                     if 'Valor' in meus_depositos.columns:
                         meus_depositos['Valor'] = meus_depositos['Valor'].apply(limpa_numero_seguro)
                     
-                    # Usa o NumberColumn nativo para exibir os decimais corretamente sem quebrar o formato numérico
                     df_depositos_editado = st.data_editor(
                         meus_depositos, 
                         num_rows="dynamic",
@@ -243,7 +241,6 @@ def render():
                     if st.button("💾 Salvar Alterações de Caixa", width='stretch', type="primary"):
                         with st.spinner("Atualizando caixa..."):
                             df_save_depositos = df_depositos_editado.copy()
-                            # Converte de volta para string com vírgula ANTES de enviar pro banco de dados
                             if 'Valor' in df_save_depositos.columns:
                                 df_save_depositos['Valor'] = df_save_depositos['Valor'].apply(lambda x: f"{float(x):.2f}".replace('.', ','))
                                 
@@ -269,18 +266,18 @@ def render():
                     col_preco = next((c for c in minhas_compras.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), None)
                     col_qtd = 'Quantidade' if 'Quantidade' in minhas_compras.columns else None
 
-                    # Limpa para manter a ordenação como floats reais
+                    # Converte para float real para permitir ordenação correta e dinamismo nos decimais
                     if col_preco:
                         minhas_compras[col_preco] = minhas_compras[col_preco].apply(limpa_numero_seguro)
                     if col_qtd:
                         minhas_compras[col_qtd] = minhas_compras[col_qtd].apply(limpa_numero_seguro)
                     
-                    # Cria a formatação nativa de colunas
+                    # Usa a coluna nativa SEM forçar o "format", permitindo que os decimais se ajustem
                     colunas_format = {}
                     if col_preco:
-                        colunas_format[col_preco] = st.column_config.NumberColumn(col_preco, format="%.4f")
+                        colunas_format[col_preco] = st.column_config.NumberColumn(col_preco)
                     if col_qtd:
-                        colunas_format[col_qtd] = st.column_config.NumberColumn(col_qtd, format="%.8f")
+                        colunas_format[col_qtd] = st.column_config.NumberColumn(col_qtd)
 
                     df_compras_editado = st.data_editor(
                         minhas_compras, 
@@ -294,7 +291,8 @@ def render():
                     if st.button("💾 Salvar Alterações de Ativos", width='stretch', type="primary"):
                         with st.spinner("Atualizando carteira..."):
                             df_save_compras = df_compras_editado.copy()
-                            # Blindagem para voltar tudo com vírgula para o Google Sheets
+                            
+                            # Formata de volta limpando os zeros inúteis antes de ir para o banco
                             if col_preco in df_save_compras.columns:
                                 df_save_compras[col_preco] = df_save_compras[col_preco].apply(lambda x: f"{float(x):.4f}".replace('.', ','))
                             if col_qtd in df_save_compras.columns:
