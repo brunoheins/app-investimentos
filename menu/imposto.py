@@ -25,7 +25,6 @@ def normalizar_categoria(cat_str):
     return str(cat_str).strip()
 
 def calcular_impostos(email):
-    # Definimos a estrutura base para nunca retornar tabelas sem colunas
     cols_vendas = ['Data', 'Mes_Ano', 'Ano', 'Ativo', 'Categoria', 'Valor_Venda', 'Lucro']
     
     df_invest = ler_planilha("Investimentos")
@@ -111,10 +110,45 @@ def render():
     mes_atual = hoje.strftime('%Y-%m')
     ano_atual = hoje.strftime('%Y')
     
+    # --- LÓGICA DO MÊS ANTERIOR PARA O ALERTA DE DARF ---
+    primeiro_dia_atual = hoje.replace(day=1)
+    ultimo_dia_anterior = primeiro_dia_atual - datetime.timedelta(days=1)
+    mes_anterior_str = ultimo_dia_anterior.strftime('%Y-%m')
+    nome_mes_anterior = ultimo_dia_anterior.strftime('%m/%Y')
+    
     # ==========================================
     # SEÇÃO 1: BRASIL (FOCO MENSAL - DARF)
     # ==========================================
     st.header("🇧🇷 Radar Brasil (Mês Atual)")
+    
+    # 🚨 ALERTA DE DARF DO MÊS PASSADO 🚨
+    if not df_vendas.empty:
+        df_mes_anterior = df_vendas[df_vendas['Mes_Ano'] == mes_anterior_str]
+        
+        darf_total_ant = 0
+        mensagens_darf_ant = []
+        
+        if not df_mes_anterior.empty:
+            # Verifica Ações Mês Passado
+            df_ac_ant = df_mes_anterior[df_mes_anterior['Categoria'] == 'Ações']
+            vendas_ac_ant = df_ac_ant['Valor_Venda'].sum() if not df_ac_ant.empty else 0
+            lucro_ac_ant = df_ac_ant['Lucro'].sum() if not df_ac_ant.empty else 0
+            if vendas_ac_ant > 20000 and lucro_ac_ant > 0:
+                darf_ac = lucro_ac_ant * 0.15
+                darf_total_ant += darf_ac
+                mensagens_darf_ant.append(f"Ações: {formata_br(darf_ac)}")
+                
+            # Verifica FIIs Mês Passado
+            df_fii_ant = df_mes_anterior[df_mes_anterior['Categoria'] == 'FIIs']
+            lucro_fii_ant = df_fii_ant['Lucro'].sum() if not df_fii_ant.empty else 0
+            if lucro_fii_ant > 0:
+                darf_fii = lucro_fii_ant * 0.20
+                darf_total_ant += darf_fii
+                mensagens_darf_ant.append(f"FIIs: {formata_br(darf_fii)}")
+                
+        if darf_total_ant > 0:
+            st.error(f"🚨 **ALERTA DE VENCIMENTO:** Você teve lucros tributáveis em **{nome_mes_anterior}**. Há uma **DARF estimada de {formata_br(darf_total_ant)}** que vence no último dia útil deste mês! ({' + '.join(mensagens_darf_ant)})")
+
     
     df_mes = df_vendas[df_vendas['Mes_Ano'] == mes_atual] if not df_vendas.empty else pd.DataFrame(columns=df_vendas.columns)
     
