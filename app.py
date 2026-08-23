@@ -16,7 +16,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Importando as telas
-from menu import resumo, saldo, aportes, configuracao, lancamentos, perfil, backup, dividendos
+from menu import resumo, saldo, aportes, configuracao, lancamentos, perfil, backup, dividendos, imposto
 
 # Variáveis Globais de Sessão
 if 'logado' not in st.session_state:
@@ -162,6 +162,7 @@ else:
             st.Page(aportes.render, title="Guia de Aportes", icon="🎯", url_path="aportes"),
             st.Page(lancamentos.render, title="Central de Lançamentos", icon="📝", url_path="lancamentos"),
             st.Page(configuracao.render, title="Configuração da Carteira", icon="⚙️", url_path="configuracao"),
+            st.Page(imposto.render, title="Radar de Imposto", icon="🦁", url_path="imposto"),
             st.Page(backup.render, title="Importar/Exportar Dados", icon="💾", url_path="backup")
         ]
     })
