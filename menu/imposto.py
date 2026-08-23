@@ -25,21 +25,24 @@ def normalizar_categoria(cat_str):
     return str(cat_str).strip()
 
 def calcular_impostos(email):
+    # Definimos a estrutura base para nunca retornar tabelas sem colunas
+    cols_vendas = ['Data', 'Mes_Ano', 'Ano', 'Ativo', 'Categoria', 'Valor_Venda', 'Lucro']
+    
     df_invest = ler_planilha("Investimentos")
-    if df_invest.empty: return pd.DataFrame()
+    if df_invest.empty: return pd.DataFrame(columns=cols_vendas)
     
     df_invest.columns = [str(c).strip() for c in df_invest.columns]
     if 'Email' not in df_invest.columns or 'Ativo' not in df_invest.columns: 
-        return pd.DataFrame()
+        return pd.DataFrame(columns=cols_vendas)
 
     df_user = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email].copy()
-    if df_user.empty: return pd.DataFrame()
+    if df_user.empty: return pd.DataFrame(columns=cols_vendas)
 
     col_data = next((c for c in df_user.columns if 'data' in str(c).lower()), None)
     col_preco = next((c for c in df_user.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), None)
     
     if not col_data or not col_preco: 
-        return pd.DataFrame()
+        return pd.DataFrame(columns=cols_vendas)
 
     df_user['Data'] = pd.to_datetime(df_user[col_data], errors='coerce', dayfirst=True)
     df_user = df_user.dropna(subset=['Data']).sort_values(by='Data')
@@ -89,6 +92,9 @@ def calcular_impostos(email):
                 'Lucro': lucro
             })
             
+    if not historico_vendas:
+        return pd.DataFrame(columns=cols_vendas)
+        
     return pd.DataFrame(historico_vendas)
 
 
@@ -100,7 +106,6 @@ def render():
     
     if df_vendas.empty:
         st.info("Nenhuma venda (quantidade negativa) foi localizada no seu histórico de investimentos. Seu Leão está dormindo tranquilo! 💤")
-        return
 
     hoje = datetime.datetime.today()
     mes_atual = hoje.strftime('%Y-%m')
@@ -111,7 +116,7 @@ def render():
     # ==========================================
     st.header("🇧🇷 Radar Brasil (Mês Atual)")
     
-    df_mes = df_vendas[df_vendas['Mes_Ano'] == mes_atual]
+    df_mes = df_vendas[df_vendas['Mes_Ano'] == mes_atual] if not df_vendas.empty else pd.DataFrame(columns=df_vendas.columns)
     
     c_br1, c_br2 = st.columns(2, gap="large")
     
@@ -168,7 +173,7 @@ def render():
     st.markdown("Pela Lei 14.754/2023, o imposto sobre investimentos internacionais (Stocks, REITs, ETFs) é apurado anualmente. Os lucros são tributados em **15%**, permitindo a compensação de prejuízos dentro do mesmo ano.")
     
     cats_exterior = ['Stocks', 'REITs', 'ETFs']
-    df_ano_ext = df_vendas[(df_vendas['Ano'] == ano_atual) & (df_vendas['Categoria'].isin(cats_exterior))]
+    df_ano_ext = df_vendas[(df_vendas['Ano'] == ano_atual) & (df_vendas['Categoria'].isin(cats_exterior))] if not df_vendas.empty else pd.DataFrame(columns=df_vendas.columns)
     
     if df_ano_ext.empty:
         st.info("Nenhuma venda de ativos no exterior registrada no ano de " + ano_atual + ".")
@@ -186,14 +191,15 @@ def render():
             c_ext3.metric("Imposto Acumulado", "R$ 0,00")
             st.success(f"Seu saldo anual no exterior é de prejuízo ({formata_br(lucro_ext_ano)}). Esse valor abaterá futuros lucros neste mesmo ano calendário.")
 
-    with st.expander("Ver histórico de Vendas (Auditoria)"):
-        df_exibicao = df_vendas.sort_values(by='Data', ascending=False).head(15).copy()
-        df_exibicao['Data'] = df_exibicao['Data'].dt.strftime('%d/%m/%Y')
-        df_exibicao['Valor_Venda'] = df_exibicao['Valor_Venda'].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-        df_exibicao['Lucro'] = df_exibicao['Lucro'].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-        
-        st.dataframe(
-            df_exibicao[['Data', 'Ativo', 'Categoria', 'Valor_Venda', 'Lucro']],
-            width='stretch',
-            hide_index=True
-        )
+    if not df_vendas.empty:
+        with st.expander("Ver histórico de Vendas (Auditoria)"):
+            df_exibicao = df_vendas.sort_values(by='Data', ascending=False).head(15).copy()
+            df_exibicao['Data'] = df_exibicao['Data'].dt.strftime('%d/%m/%Y')
+            df_exibicao['Valor_Venda'] = df_exibicao['Valor_Venda'].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            df_exibicao['Lucro'] = df_exibicao['Lucro'].apply(lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            
+            st.dataframe(
+                df_exibicao[['Data', 'Ativo', 'Categoria', 'Valor_Venda', 'Lucro']],
+                width='stretch',
+                hide_index=True
+            )
