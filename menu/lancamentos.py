@@ -5,6 +5,25 @@ from datetime import datetime
 from utils import registrar_deposito, registrar_compra, obter_ativos_por_categoria, formata_br, ler_planilha, atualizar_historico_usuario
 from menu.aportes import motor_de_aportes
 
+# ==========================================
+# ARMADURA NUMÉRICA UNIVERSAL
+# ==========================================
+def limpa_numero_seguro(val):
+    """Garante que a leitura de dados do Excel não quebre os decimais"""
+    if pd.isna(val) or str(val).strip() == '': return 0.0
+    if isinstance(val, (int, float)): return float(val)
+    
+    v = str(val).strip().replace('R$', '').replace(' ', '')
+    if '.' in v and ',' in v:
+        v = v.replace('.', '').replace(',', '.')
+    elif ',' in v:
+        v = v.replace(',', '.')
+    
+    try:
+        return float(v)
+    except:
+        return 0.0
+
 def render():
     st.title("📝 Central de Lançamentos")
     st.markdown("Registre a movimentação de dinheiro na corretora e as suas ordens de compra e venda.")
@@ -202,25 +221,27 @@ def render():
                 if not meus_depositos.empty:
                     meus_depositos = meus_depositos.drop(columns=['Email'])
                     
-                    # Converte a coluna Valor para float de forma robusta e aplica o style BR
+                    # Converte de forma robusta e aplica o style BR
                     if 'Valor' in meus_depositos.columns:
-                         meus_depositos['Valor'] = pd.to_numeric(meus_depositos['Valor'].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
-                         meus_depositos = meus_depositos.style.format({'Valor': "{:,.2f}"}, thousands='.', decimal=',')
+                         meus_depositos['Valor'] = meus_depositos['Valor'].apply(limpa_numero_seguro)
+                         # Aplica a máscara brasileira de exibição!
+                         meus_depositos_styled = meus_depositos.style.format({'Valor': "{:,.2f}"}, thousands='.', decimal=',')
+                    else:
+                         meus_depositos_styled = meus_depositos
 
                     df_depositos_editado = st.data_editor(
-                        meus_depositos, 
+                        meus_depositos_styled, 
                         num_rows="dynamic",
                         width='stretch', 
                         hide_index=True,
                         key="editor_depositos"
                     )
                     
-                    # Se tivermos aplicado o estilo, voltamos df_depositos_editado para um DF normal, e formatamos o número para gravar
                     if isinstance(df_depositos_editado, pd.io.formats.style.Styler):
                         df_depositos_editado = df_depositos_editado.data
                     
                     if 'Valor' in df_depositos_editado.columns:
-                         df_depositos_editado['Valor'] = df_depositos_editado['Valor'].apply(lambda x: f"{x:.2f}".replace('.', ','))
+                         df_depositos_editado['Valor'] = df_depositos_editado['Valor'].apply(limpa_numero_seguro).apply(lambda x: f"{x:.2f}".replace('.', ','))
 
                     if st.button("💾 Salvar Alterações de Caixa", width='stretch', type="primary"):
                         with st.spinner("Atualizando caixa..."):
@@ -243,18 +264,19 @@ def render():
                 if not minhas_compras.empty:
                     minhas_compras = minhas_compras.drop(columns=['Email'])
                     
-                    # Identifica colunas de valor e qtd, e formata no estilo PT-BR para exibição
                     col_preco = next((c for c in minhas_compras.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), None)
                     col_qtd = 'Quantidade' if 'Quantidade' in minhas_compras.columns else None
 
+                    # Limpa todos os números de verdade usando a Armadura
                     if col_preco:
-                        minhas_compras[col_preco] = pd.to_numeric(minhas_compras[col_preco].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                        minhas_compras[col_preco] = minhas_compras[col_preco].apply(limpa_numero_seguro)
                     if col_qtd:
-                        minhas_compras[col_qtd] = pd.to_numeric(minhas_compras[col_qtd].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                        minhas_compras[col_qtd] = minhas_compras[col_qtd].apply(limpa_numero_seguro)
                     
+                    # Cria as máscaras visuais pt-BR
                     estilo_dict = {}
                     if col_preco: estilo_dict[col_preco] = "{:,.2f}"
-                    if col_qtd: estilo_dict[col_qtd] = "{:,.8f}" # Quantidade aceita mais casas
+                    if col_qtd: estilo_dict[col_qtd] = "{:,.8f}"
 
                     minhas_compras_styled = minhas_compras.style.format(estilo_dict, thousands='.', decimal=',') if estilo_dict else minhas_compras
 
@@ -266,15 +288,14 @@ def render():
                         key="editor_compras"
                     )
                     
-                    # Puxa o DataFrame de volta e formata as colunas em string PT-BR antes de salvar
                     if isinstance(df_compras_editado, pd.io.formats.style.Styler):
                         df_compras_editado = df_compras_editado.data
                     
+                    # Converte de volta para texto PT-BR na hora de gravar no banco
                     if col_preco in df_compras_editado.columns:
-                        df_compras_editado[col_preco] = df_compras_editado[col_preco].apply(lambda x: f"{x:.4f}".replace('.', ','))
+                        df_compras_editado[col_preco] = df_compras_editado[col_preco].apply(limpa_numero_seguro).apply(lambda x: f"{x:.4f}".replace('.', ','))
                     if col_qtd in df_compras_editado.columns:
-                        df_compras_editado[col_qtd] = df_compras_editado[col_qtd].apply(lambda x: f"{x:.8f}".replace('.', ',').rstrip('0').rstrip(','))
-                        # Fix caso remova os zeros e vire string vazia
+                        df_compras_editado[col_qtd] = df_compras_editado[col_qtd].apply(limpa_numero_seguro).apply(lambda x: f"{x:.8f}".replace('.', ',').rstrip('0').rstrip(','))
                         df_compras_editado[col_qtd] = df_compras_editado[col_qtd].replace('', '0')
                     
                     if st.button("💾 Salvar Alterações de Ativos", width='stretch', type="primary"):
