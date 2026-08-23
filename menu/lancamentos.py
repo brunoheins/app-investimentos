@@ -21,7 +21,6 @@ def render():
     st.markdown("<br>", unsafe_allow_html=True)
     c_aba1, c_aba2 = st.columns(2)
     
-    # --- BOTÃO 1 ATUALIZADO ---
     c_aba1.button(
         "💰 1. Aporte / Saque de Caixa", 
         width='stretch', 
@@ -45,38 +44,33 @@ def render():
         st.subheader("Registrar Movimentação de Caixa")
         st.info("Lance aqui o dinheiro que entrou (Aporte) ou que você retirou (Saque) da corretora.")
         
-        # --- NOVO: OPÇÃO DE APORTE OU SAQUE ---
         tipo_mov_caixa = st.radio(
             "Tipo de Movimentação:",
             options=["Aporte (Entrada 💰)", "Saque (Saída 💸)"],
             horizontal=True
         )
 
-        with st.form("form_deposito", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            data_deposito = col1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
-            valor_deposito = col2.number_input("Valor (R$)", min_value=0.00, value=1000.00, step=100.0, format="%.2f")
-            
-            submit = st.form_submit_button("💾 Salvar Movimentação", width='stretch', type="primary")
-            if submit:
-                data_str = data_deposito.strftime("%d/%m/%Y")
-                
-                # MÁGICA: Transforma o valor em negativo se for Saque
-                valor_final = valor_deposito if "Aporte" in tipo_mov_caixa else -valor_deposito
-                
-                if registrar_deposito(st.session_state.email, data_str, valor_final):
-                    st.session_state.dicas_salvas = None 
-                    
-                    acao_texto = "Aporte" if "Aporte" in tipo_mov_caixa else "Saque"
-                    st.success(f"✅ {acao_texto} de R$ {valor_deposito:,.2f} em {data_str} salvo com sucesso!")
-                    
-                    time.sleep(1.5)
-                    st.rerun()
+        col1, col2 = st.columns(2)
+        data_deposito = col1.date_input("Data do Movimento", value=datetime.today(), format="DD/MM/YYYY")
+        
+        if "Saque" in tipo_mov_caixa:
+            valor_deposito = col2.number_input("Valor do Saque (R$)", min_value=0.01, step=100.0, format="%.2f")
+            valor_deposito = -valor_deposito
+        else:
+            valor_deposito = col2.number_input("Valor do Aporte (R$)", min_value=0.01, step=100.0, format="%.2f")
+
+        if st.button("💾 Salvar Movimentação de Caixa", width='stretch', type="primary"):
+            data_str = data_deposito.strftime("%d/%m/%Y")
+            if registrar_deposito(st.session_state.email, data_str, valor_deposito):
+                tipo_str = "Saque" if valor_deposito < 0 else "Aporte"
+                st.success(f"✅ {tipo_str} de R$ {abs(valor_deposito):.2f} registrado com sucesso!")
+                time.sleep(1.5)
+                st.rerun()
 
     # ==========================================
-    # 2. COMPRA / VENDA / EVENTOS CORPORATIVOS
+    # 2. LANÇAMENTO DE ATIVOS (COMPRA/VENDA)
     # ==========================================
-    elif st.session_state.aba_lancamento == "Compras":
+    if st.session_state.aba_lancamento == "Compras":
         st.subheader("Registrar Movimentação de Ativos")
         st.info("O sistema garante que você só registre ativos que pertençam à categoria correta.")
         
@@ -87,7 +81,6 @@ def render():
             c_val, c_num, c_btn = st.columns([2, 2, 1.2])
             val_simul = c_val.number_input("💵 Qual valor você tem para investir?", min_value=0.00, value=1000.00, step=100.00)
             
-            # --- NOVO: Seletor de Divisão Direto ---
             opcao_est = c_num.selectbox("Estratégia do Aporte:", ["Dividir pelo Objetivo", "Aporte Integral (1 Ativo)"])
             dividir = "Dividir" in opcao_est
             
@@ -141,42 +134,36 @@ def render():
             
             if is_exterior:
                 st.markdown("**🇺🇸 Lançamento Internacional**")
-                # Criamos 4 colunas lado a lado para os dados numéricos
                 c1, c2, c3, c4 = st.columns(4)
                 data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
                 qtd_compra = c2.number_input("Quantidade (Frac.)", min_value=0.00000001, step=1.0, format="%.8f")
                 preco_usd = c3.number_input("Preço Unit. (US$)", min_value=0.00, step=1.0, format="%.2f")
-                valor_total_brl = c4.number_input("Total Debitado (R$)", min_value=0.00, step=10.0, format="%.2f", help="O valor exato em Reais que saiu da sua conta.")
+                valor_total_brl = c4.number_input("Total Debitado/Creditado (R$)", min_value=0.00, step=10.0, format="%.2f", help="O valor exato em Reais.")
                 
-                # Anotação ocupando a linha inteira de baixo
                 observacao_user = st.text_input("Anotações (Opcional)", placeholder="Ex: Remessa Nomad, Dividendo reinvestido...")
                 
-                # CÁLCULOS DO CÂMBIO EFETIVO
                 total_usd = qtd_compra * preco_usd
                 dolar_efetivo = (valor_total_brl / total_usd) if total_usd > 0 else 0.0
                 
                 if total_usd > 0 and valor_total_brl > 0:
-                    st.caption(f"ℹ️ **Resumo da Ordem:** Total em Dólar: **US$ {total_usd:.2f}** | Custo do Dólar (com taxas): **R$ {dolar_efetivo:.4f}**")
+                    st.caption(f"ℹ️ **Resumo da Ordem:** Total em Dólar: **US$ {total_usd:.2f}** | Câmbio Efetivo: **R$ {dolar_efetivo:.4f}**")
                 
-                # Prepara os dados para salvar
                 preco_unitario_brl = (valor_total_brl / qtd_compra) if qtd_compra > 0 else 0.0
                 obs_final = f"[US$ {preco_usd:.2f} | Câmbio: R$ {dolar_efetivo:.4f}] {observacao_user}".strip()
 
             else:
                 st.markdown("**🇧🇷 Lançamento Nacional**")
-                # 3 colunas para o Brasil
                 c1, c2, c3 = st.columns(3)
                 data_compra = c1.date_input("Data da Operação", value=datetime.today(), format="DD/MM/YYYY")
                 qtd_compra = c2.number_input("Quantidade (Cotas)", min_value=0.0001, step=1.0, format="%.4f")
                 preco_unitario_brl = c3.number_input("Preço Unitário (R$)", min_value=0.00, step=1.0, format="%.2f")
                 
-                # Anotação ocupando a linha inteira de baixo
                 observacao_user = st.text_input("Anotações (Opcional)", placeholder="Ex: Subscrição, Bonificação...")
                 
                 valor_total_brl = qtd_compra * preco_unitario_brl
                 obs_final = observacao_user
 
-            st.info("💡 **Dica corporativa:** Para Bonificação ou Grupamento, lance o valor como **R$ 0,00** para não alterar o capital investido.")
+            st.info("💡 **Dica corporativa:** Para Bonificação ou Grupamento, lance o valor unitário como **R$ 0,00** para não alterar o capital investido.")
 
             if st.button("💾 Registrar Operação", width='stretch', type="primary"):
                 data_str = data_compra.strftime("%d/%m/%Y")
@@ -200,12 +187,13 @@ def render():
     st.markdown("---")
     
     with st.expander("🔍 Histórico, Edição e Auditoria de Lançamentos"):
-        st.markdown("Consulte seu histórico abaixo. Para **editar**, dê um duplo clique na célula. Para **excluir**, clique na linha e aperte a tecla `Delete`. Depois, clique no botão de salvar.")
-        
-        col_hist1, col_hist2 = st.columns(2)
+        st.markdown("Consulte seu histórico abaixo. Para **editar**, dê um duplo clique na célula. Para **excluir**, clique na lixeira à esquerda da linha.")
+        st.caption("O botão de **'Salvar Alterações'** aparecerá logo abaixo da tabela assim que você fizer qualquer modificação.")
+
+        col_hist1, col_hist2 = st.columns([1, 2], gap="large")
         
         with col_hist1:
-            st.subheader("💰 Editar Aportes / Saques")
+            st.subheader("💰 Editar Caixa")
             df_depositos = ler_planilha("Depositos") 
             if not df_depositos.empty and 'Email' in df_depositos.columns:
                 df_depositos['Email'] = df_depositos['Email'].astype(str).str.strip().str.lower()
@@ -214,6 +202,11 @@ def render():
                 if not meus_depositos.empty:
                     meus_depositos = meus_depositos.drop(columns=['Email'])
                     
+                    # Converte a coluna Valor para float de forma robusta e aplica o style BR
+                    if 'Valor' in meus_depositos.columns:
+                         meus_depositos['Valor'] = pd.to_numeric(meus_depositos['Valor'].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                         meus_depositos = meus_depositos.style.format({'Valor': "{:,.2f}"}, thousands='.', decimal=',')
+
                     df_depositos_editado = st.data_editor(
                         meus_depositos, 
                         num_rows="dynamic",
@@ -222,6 +215,13 @@ def render():
                         key="editor_depositos"
                     )
                     
+                    # Se tivermos aplicado o estilo, voltamos df_depositos_editado para um DF normal, e formatamos o número para gravar
+                    if isinstance(df_depositos_editado, pd.io.formats.style.Styler):
+                        df_depositos_editado = df_depositos_editado.data
+                    
+                    if 'Valor' in df_depositos_editado.columns:
+                         df_depositos_editado['Valor'] = df_depositos_editado['Valor'].apply(lambda x: f"{x:.2f}".replace('.', ','))
+
                     if st.button("💾 Salvar Alterações de Caixa", width='stretch', type="primary"):
                         with st.spinner("Atualizando caixa..."):
                             if atualizar_historico_usuario(st.session_state.email, "Depositos", df_depositos_editado):
@@ -243,13 +243,39 @@ def render():
                 if not minhas_compras.empty:
                     minhas_compras = minhas_compras.drop(columns=['Email'])
                     
+                    # Identifica colunas de valor e qtd, e formata no estilo PT-BR para exibição
+                    col_preco = next((c for c in minhas_compras.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), None)
+                    col_qtd = 'Quantidade' if 'Quantidade' in minhas_compras.columns else None
+
+                    if col_preco:
+                        minhas_compras[col_preco] = pd.to_numeric(minhas_compras[col_preco].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                    if col_qtd:
+                        minhas_compras[col_qtd] = pd.to_numeric(minhas_compras[col_qtd].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+                    
+                    estilo_dict = {}
+                    if col_preco: estilo_dict[col_preco] = "{:,.2f}"
+                    if col_qtd: estilo_dict[col_qtd] = "{:,.8f}" # Quantidade aceita mais casas
+
+                    minhas_compras_styled = minhas_compras.style.format(estilo_dict, thousands='.', decimal=',') if estilo_dict else minhas_compras
+
                     df_compras_editado = st.data_editor(
-                        minhas_compras, 
+                        minhas_compras_styled, 
                         num_rows="dynamic", 
                         width='stretch', 
                         hide_index=True,
                         key="editor_compras"
                     )
+                    
+                    # Puxa o DataFrame de volta e formata as colunas em string PT-BR antes de salvar
+                    if isinstance(df_compras_editado, pd.io.formats.style.Styler):
+                        df_compras_editado = df_compras_editado.data
+                    
+                    if col_preco in df_compras_editado.columns:
+                        df_compras_editado[col_preco] = df_compras_editado[col_preco].apply(lambda x: f"{x:.4f}".replace('.', ','))
+                    if col_qtd in df_compras_editado.columns:
+                        df_compras_editado[col_qtd] = df_compras_editado[col_qtd].apply(lambda x: f"{x:.8f}".replace('.', ',').rstrip('0').rstrip(','))
+                        # Fix caso remova os zeros e vire string vazia
+                        df_compras_editado[col_qtd] = df_compras_editado[col_qtd].replace('', '0')
                     
                     if st.button("💾 Salvar Alterações de Ativos", width='stretch', type="primary"):
                         with st.spinner("Atualizando carteira..."):
