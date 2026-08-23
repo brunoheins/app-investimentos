@@ -6,10 +6,10 @@ from utils import registrar_deposito, registrar_compra, obter_ativos_por_categor
 from menu.aportes import motor_de_aportes
 
 # ==========================================
-# ARMADURA NUMÉRICA UNIVERSAL
+# ARMADURA NUMÉRICA E FORMATADORES PT-BR
 # ==========================================
 def limpa_numero_seguro(val):
-    """Garante que a leitura de dados do Excel não quebre os decimais e mantenha o tipo float para ordenação."""
+    """Lê com segurança números americanos ou strings brasileiras (ex: 1.234,56 ou 0,3065) e transforma em float puro"""
     if pd.isna(val) or str(val).strip() == '': return 0.0
     if isinstance(val, (int, float)): return float(val)
     
@@ -23,6 +23,21 @@ def limpa_numero_seguro(val):
         return float(v)
     except:
         return 0.0
+
+def formata_qtd(val):
+    """Corta os zeros em excesso no final de frações e coloca vírgula"""
+    s = f"{val:.8f}"
+    if '.' in s: s = s.rstrip('0').rstrip('.')
+    if not s: s = '0'
+    return s.replace('.', ',')
+
+def formata_preco(val):
+    """Sempre 4 casas decimais com vírgula"""
+    return f"{val:.4f}".replace('.', ',')
+
+def formata_valor(val):
+    """Sempre 2 casas decimais com vírgula"""
+    return f"{val:.2f}".replace('.', ',')
 
 
 def render():
@@ -224,8 +239,9 @@ def render():
                 if not meus_depositos.empty:
                     meus_depositos = meus_depositos.drop(columns=['Email'])
                     
+                    # Converte para string com vírgula para visualização perfeita
                     if 'Valor' in meus_depositos.columns:
-                        meus_depositos['Valor'] = meus_depositos['Valor'].apply(limpa_numero_seguro)
+                        meus_depositos['Valor'] = meus_depositos['Valor'].apply(limpa_numero_seguro).apply(formata_valor)
                     
                     df_depositos_editado = st.data_editor(
                         meus_depositos, 
@@ -234,15 +250,16 @@ def render():
                         hide_index=True,
                         key="editor_depositos",
                         column_config={
-                            "Valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f")
+                            "Valor": st.column_config.TextColumn("Valor (R$)") # Força a ser texto para o Streamlit não quebrar
                         }
                     )
                     
                     if st.button("💾 Salvar Alterações de Caixa", width='stretch', type="primary"):
                         with st.spinner("Atualizando caixa..."):
                             df_save_depositos = df_depositos_editado.copy()
+                            # Converte a string pt-br editada de volta para o padrão salvo no Google Sheets
                             if 'Valor' in df_save_depositos.columns:
-                                df_save_depositos['Valor'] = df_save_depositos['Valor'].apply(lambda x: f"{float(x):.2f}".replace('.', ','))
+                                df_save_depositos['Valor'] = df_save_depositos['Valor'].apply(limpa_numero_seguro).apply(formata_valor)
                                 
                             if atualizar_historico_usuario(st.session_state.email, "Depositos", df_save_depositos):
                                 st.success("Caixa atualizado com sucesso!")
@@ -266,18 +283,18 @@ def render():
                     col_preco = next((c for c in minhas_compras.columns if 'prec' in str(c).lower() or 'custo' in str(c).lower()), None)
                     col_qtd = 'Quantidade' if 'Quantidade' in minhas_compras.columns else None
 
-                    # Converte para float real para permitir ordenação correta e dinamismo nos decimais
+                    # Transforma para string visual brasileira
                     if col_preco:
-                        minhas_compras[col_preco] = minhas_compras[col_preco].apply(limpa_numero_seguro)
+                        minhas_compras[col_preco] = minhas_compras[col_preco].apply(limpa_numero_seguro).apply(formata_preco)
                     if col_qtd:
-                        minhas_compras[col_qtd] = minhas_compras[col_qtd].apply(limpa_numero_seguro)
+                        minhas_compras[col_qtd] = minhas_compras[col_qtd].apply(limpa_numero_seguro).apply(formata_qtd)
                     
-                    # Usa a coluna nativa SEM forçar o "format", permitindo que os decimais se ajustem
+                    # Força a coluna a ser texto para blindar a exibição da vírgula
                     colunas_format = {}
                     if col_preco:
-                        colunas_format[col_preco] = st.column_config.NumberColumn(col_preco)
+                        colunas_format[col_preco] = st.column_config.TextColumn(col_preco)
                     if col_qtd:
-                        colunas_format[col_qtd] = st.column_config.NumberColumn(col_qtd)
+                        colunas_format[col_qtd] = st.column_config.TextColumn(col_qtd)
 
                     df_compras_editado = st.data_editor(
                         minhas_compras, 
@@ -292,11 +309,11 @@ def render():
                         with st.spinner("Atualizando carteira..."):
                             df_save_compras = df_compras_editado.copy()
                             
-                            # Formata de volta limpando os zeros inúteis antes de ir para o banco
+                            # Limpa os números digitados na tela e formata para o banco de dados
                             if col_preco in df_save_compras.columns:
-                                df_save_compras[col_preco] = df_save_compras[col_preco].apply(lambda x: f"{float(x):.4f}".replace('.', ','))
+                                df_save_compras[col_preco] = df_save_compras[col_preco].apply(limpa_numero_seguro).apply(formata_preco)
                             if col_qtd in df_save_compras.columns:
-                                df_save_compras[col_qtd] = df_save_compras[col_qtd].apply(lambda x: f"{float(x):.8f}".replace('.', ',').rstrip('0').rstrip(',')).replace('', '0')
+                                df_save_compras[col_qtd] = df_save_compras[col_qtd].apply(limpa_numero_seguro).apply(formata_qtd)
                                 
                             if atualizar_historico_usuario(st.session_state.email, "Investimentos", df_save_compras):
                                 st.success("Movimentações atualizadas com sucesso!")
