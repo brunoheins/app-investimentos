@@ -189,6 +189,11 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                     preco_digitado = limpa_numero_seguro(row_inv.get(col_preco, 0))
                     df_user_invest.at[idx_inv, 'TotalAtual'] = row_inv['Quantidade'] * preco_digitado
 
+            # >>> A MÁGICA DA CORREÇÃO <<<
+            # Força todos os títulos de Renda Fixa da sua carteira a se chamarem "OPORTUNIDADE DE RENDA FIXA"
+            # Isso faz com que o robô consiga cruzar o que você já tem com a meta macro de Renda Fixa
+            df_user_invest.loc[df_user_invest['Categoria'] == 'Renda Fixa', 'Ativo'] = 'OPORTUNIDADE DE RENDA FIXA'
+
             df_carteira = df_user_invest.groupby(['Categoria', 'Ativo']).agg({
                 'TotalAtual': 'sum'
             }).reset_index()
@@ -221,10 +226,9 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         axis=1
     )
     
-    # ORDENAÇÃO DECRESCENTE PELA COLUNA 'ALVO (%)'
     df_resumo_macro = df_resumo_macro.sort_values(by='Alvo (%)', ascending=False).reset_index(drop=True)
 
-    # --- 4. ALOCAÇÃO INTELIGENTE (LOGICA ORIGINAL DE DIVISÃO) ---
+    # --- 4. ALOCAÇÃO INTELIGENTE ---
     compras_dict = {}
     aporte_restante = valor_aporte
     df_disp = df_calc[df_calc['Is_Target'] == True].copy()
@@ -245,7 +249,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
         }
 
     if not dividir:
-        # Aporte Integral: Aloca 100% no ativo mais defasado da carteira
         df_disp = df_disp.sort_values(by='Falta_Comprar', ascending=False)
         if not df_disp.empty:
             row = df_disp.iloc[0]
@@ -273,7 +276,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
             aporte_restante -= gasto
 
     else:
-        # Aporte Dividido: Passo 1 - Alocação Proporcional Mágica (ORIGINAL)
         df_gap = df_disp[df_disp['Falta_Comprar'] > 0]
         total_gap = df_gap['Falta_Comprar'].sum()
         
@@ -331,7 +333,6 @@ def motor_de_aportes(email, valor_aporte, dividir=True):
                 d['Falta_Comprar'] -= gasto
                 aporte_restante -= gasto
 
-        # Aporte Dividido: Passo 2 - Otimizador de Trocos (Greedy Original)
         comprou_no_loop = True
         while aporte_restante > 0.01 and comprou_no_loop:
             comprou_no_loop = False
@@ -423,7 +424,6 @@ def render():
         st.markdown("---")
         st.subheader("📊 Termômetro da Carteira (Antes do Aporte)")
         
-        # Máscara visual bonita ("26,20%") mantendo a matemática do banco intacta
         st.dataframe(
             df_macro[['Categoria', 'Alvo (%)', 'Atual (%)', 'Status']].style.format({
                 'Alvo (%)': "{:.2f}%",
@@ -432,7 +432,7 @@ def render():
                 lambda x: 'color: #00C851' if '🟢' in str(x) else ('color: #ff4444' if '🔴' in str(x) else 'color: #ffbb33'), 
                 subset=['Status']
             ),
-            width='stretch',  # Atualizado para o novo padrão do Streamlit
+            width='stretch',  
             hide_index=True
         )
 
