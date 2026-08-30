@@ -25,10 +25,14 @@ def render():
                 lambda row: row['PrecoLive'] if row['PrecoLive'] > 0 else row['PrecoMedio'], axis=1
             )
             
-            dados_usuario['TotalInvestido'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
+            # --- CÁLCULO: Diferença entre gasto histórico e saldo atual ---
+            dados_usuario['TotalGastoNaOrdem'] = dados_usuario['Quantidade'] * dados_usuario['PrecoMedio']
+            total_gasto_historico = dados_usuario['TotalGastoNaOrdem'].sum()
+            # --------------------------------------------------------------------
+            
             dados_usuario['TotalAtual'] = dados_usuario['Quantidade'] * dados_usuario['PrecoAtual']
             
-            # --- NOVO: CRUZAMENTO PARA BUSCAR SETORES ---
+            # --- CRUZAMENTO PARA BUSCAR SETORES ---
             df_config = ler_planilha("Ativos_Config")
             dict_setores = {}
             if not df_config.empty and 'Email' in df_config.columns:
@@ -42,19 +46,19 @@ def render():
             
             carteira_agrupada = dados_usuario.groupby(['Ativo', 'Categoria', 'Setor']).agg({
                 'Quantidade': 'sum',
-                'TotalInvestido': 'sum',
+                'TotalGastoNaOrdem': 'sum',
                 'TotalAtual': 'sum',
                 'PrecoAtual': 'first'
             }).reset_index()
             
-            carteira_agrupada['PrecoMedio'] = carteira_agrupada['TotalInvestido'] / carteira_agrupada['Quantidade'].replace(0, 1)
+            carteira_agrupada['PrecoMedio'] = carteira_agrupada['TotalGastoNaOrdem'] / carteira_agrupada['Quantidade'].replace(0, 1)
             carteira_agrupada.loc[carteira_agrupada['Quantidade'] == 0, 'PrecoMedio'] = 0
             
             carteira_agrupada['EvolucaoPct'] = ((carteira_agrupada['PrecoAtual'] - carteira_agrupada['PrecoMedio']) / carteira_agrupada['PrecoMedio'].replace(0, 1)) * 100
             carteira_agrupada.loc[carteira_agrupada['PrecoMedio'] == 0, 'EvolucaoPct'] = 0
             
             df_depositos = ler_planilha("Depositos")
-            total_carteira_investido = 0.0
+            total_depositado = 0.0
             
             if not df_depositos.empty and 'Email' in df_depositos.columns:
                 df_depositos['Email'] = df_depositos['Email'].astype(str).str.strip().str.lower()
@@ -62,15 +66,26 @@ def render():
                 
                 if not meus_depositos.empty:
                     meus_depositos['Valor'] = meus_depositos['Valor'].apply(extrair_numero_br)
-                    total_carteira_investido = meus_depositos['Valor'].sum()
+                    total_depositado = meus_depositos['Valor'].sum()
             
-            total_carteira_atual = carteira_agrupada['TotalAtual'].sum()
-            evolucao_total_carteira = ((total_carteira_atual - total_carteira_investido) / total_carteira_investido if total_carteira_investido > 0 else 0) * 100
+            # --- CÁLCULO FINAL COM O SALDO PENDENTE ---
+            saldo_pendente = max(0, total_depositado - total_gasto_historico)
+            total_ativos_atual = carteira_agrupada['TotalAtual'].sum()
             
-            col_c1, col_c2, col_c3 = st.columns(3)
-            col_c1.metric("Total Investido", formata_br(total_carteira_investido))
-            col_c2.metric("Valor Atual", formata_br(total_carteira_atual))
-            col_c3.metric("Evolução", f"{evolucao_total_carteira:+.2f}%".replace('.', ','))
+            # Patrimônio Real (Ativos + Depósitos não alocados)
+            patrimonio_real = total_ativos_atual + saldo_pendente
+            
+            evolucao_total_carteira = ((patrimonio_real - total_depositado) / total_depositado if total_depositado > 0 else 0) * 100
+            
+            col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+            col_c1.metric("Total Depositado", formata_br(total_depositado))
+            col_c2.metric(
+                "Pendente Investir", 
+                formata_br(saldo_pendente),
+                help="Valor estrito dos depósitos que ainda não foi alocado em compras. Este valor não soma dividendos recebidos."
+            )
+            col_c3.metric("Patrimônio Real", formata_br(patrimonio_real))
+            col_c4.metric("Evolução", f"{evolucao_total_carteira:+.2f}%".replace('.', ','))
             
             st.markdown("---")
             
@@ -79,6 +94,12 @@ def render():
             with col_grafico:
                 st.subheader("Distribuição")
                 df_categoria = carteira_agrupada.groupby('Categoria')['TotalAtual'].sum().reset_index()
+                
+                if saldo_pendente > 0:
+                    df_caixa = pd.DataFrame([{'Categoria': 'Aporte Pendente', 'TotalAtual': saldo_pendente}])
+                    df_categoria = pd.concat([df_categoria, df_caixa], ignore_index=True)
+                
+                # Gráfico limpo, focando apenas no percentual de alocação
                 fig = px.pie(df_categoria, values='TotalAtual', names='Categoria', hole=0.4)
                 fig.update_traces(textinfo='label+percent')
                 fig.update_layout(height=350, margin=dict(t=20, b=20, l=0, r=0), showlegend=False)
@@ -87,6 +108,8 @@ def render():
             with col_tabelas:
                 st.subheader("Detalhamento por Ativos")
                 for cat in carteira_agrupada['Categoria'].unique():
+                    
+                    # Mantém o título neutro para evitar gatilhos emocionais
                     with st.expander(f"📁 {cat}", expanded=False): 
                         df_exibicao = carteira_agrupada[carteira_agrupada['Categoria'] == cat][['Ativo', 'Setor', 'Quantidade', 'PrecoMedio', 'PrecoAtual', 'TotalAtual', 'EvolucaoPct']].copy()
                         
