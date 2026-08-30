@@ -120,11 +120,8 @@ def salvar_configuracao(email, dados_dict):
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def buscar_setor_yahoo(ativo, categoria):
-    if categoria == "Renda Fixa":
-        return "Renda Fixa"
-        
+    if categoria == "Renda Fixa": return "Renda Fixa"
     t_clean = str(ativo).upper().replace(".SA", "").strip()
-
     if categoria == "FIIs":
         fiis_papel = ["MXRF11", "KNCR11", "KNIP11", "CPTS11", "IRDM11", "RECR11", "VGIR11", "VRTA11", "HCTR11", "DEVA11", "VGHF11", "MCCI11", "CVBI11", "HGCR11", "KNSC11", "RBRR11", "URPR11", "HABT11", "VCJR11", "ARRI11", "RBRY11", "OUJP11", "CACR11", "NCHB11", "KNHY11", "SNCI11", "RZAK11", "BARI11"]
         fiis_logistica = ["HGLG11", "BTLG11", "XPLG11", "VILG11", "BRCO11", "LVBI11", "GGRC11", "HSLG11", "RBRL11", "SDIL11", "TRXF11", "GALG11", "GARE11", "HLG11", "FIIB11", "VTLG11", "PATL11"]
@@ -133,7 +130,6 @@ def buscar_setor_yahoo(ativo, categoria):
         fiis_hibridos = ["KNRI11", "ALZR11", "TGAR11", "HGRU11", "KFOF11", "MAXR11", "TRXF11", "RBVA11", "MCHY11"]
         fiis_fof = ["BCFF11", "HFOF11", "KISU11", "RBRF11", "MGFF11", "CPFF11", "XPFN11", "HGFF11", "KFOF11", "BLMG11", "RZFO11"]
         fiis_agro = ["VGIA11", "RZAG11", "SNAG11", "KNCA11", "RURA11", "EGAF11", "FGAA11", "GCRA11", "VCRA11", "XPCA11", "DCRA11", "AGRX11"]
-        
         if t_clean in fiis_papel: return "Papel (TVM)"
         if t_clean in fiis_logistica: return "Logística"
         if t_clean in fiis_shoppings: return "Shoppings"
@@ -143,33 +139,20 @@ def buscar_setor_yahoo(ativo, categoria):
         if t_clean in fiis_agro: return "Fiagro"
 
     ticker = ativo
-    if categoria in ["Ações", "FIIs"]:
-        if "." not in ticker and re.search(r'\d+$', ticker):
-            ticker = f"{ticker}.SA"
-            
+    if categoria in ["Ações", "FIIs"] and "." not in ticker and re.search(r'\d+$', ticker): ticker = f"{ticker}.SA"
     try:
         info = yf.Ticker(ticker).info
         setor = info.get('sector', '')
-        
-        if not setor or str(setor).lower() in ['none', 'nan', '']:
-            setor = info.get('industry', 'Não Classificado')
-            
+        if not setor or str(setor).lower() in ['none', 'nan', '']: setor = info.get('industry', 'Não Classificado')
         traducao = {
-            "Financial Services": "Financeiro",
-            "Utilities": "Utilidade Pública",
-            "Basic Materials": "Materiais Básicos",
-            "Industrials": "Industrial",
-            "Consumer Defensive": "Consumo Não-Cíclico",
-            "Consumer Cyclical": "Consumo Cíclico",
-            "Healthcare": "Saúde",
-            "Technology": "Tecnologia",
-            "Communication Services": "Comunicações",
-            "Energy": "Energia",
-            "Real Estate": "Imobiliário"
+            "Financial Services": "Financeiro", "Utilities": "Utilidade Pública",
+            "Basic Materials": "Materiais Básicos", "Industrials": "Industrial",
+            "Consumer Defensive": "Consumo Não-Cíclico", "Consumer Cyclical": "Consumo Cíclico",
+            "Healthcare": "Saúde", "Technology": "Tecnologia", "Communication Services": "Comunicações",
+            "Energy": "Energia", "Real Estate": "Imobiliário"
         }
         return traducao.get(setor, setor if setor else "Não Classificado")
-    except:
-        return "Não Classificado"
+    except: return "Não Classificado"
 
 def salvar_ativos_categoria(email, categoria, df_ativos):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -246,16 +229,14 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
         return False
 
 # ==========================================
-# COTAÇÕES EM TEMPO REAL (YFINANCE + TESOURO + CÂMBIO)
+# COTAÇÕES EM TEMPO REAL (NOVO MOTOR V3)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def obter_cotacoes(email_usuario=None):
     """
     Busca os preços em tempo real usando Python (Últimos 5 dias para fugir de FDS/Feriados).
     """
-    cotacoes = {}
-    ativos_buscados = set()
-    
+    cotacoes, ativos_buscados = {}, set()
     try:
         # Define o e-mail: Se não for passado na função, pega do session_state
         if email_usuario is None and 'email' in st.session_state:
@@ -267,178 +248,136 @@ def obter_cotacoes(email_usuario=None):
             
         # Lê os ativos já comprados para pré-popular o fallback de Preço Médio
         df_invest = ler_planilha("Investimentos")
-        if not df_invest.empty and 'Email' in df_invest.columns:
-            meus_invest = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email_usuario]
-            for _, row in meus_invest.iterrows():
-                ativo = str(row.get('Ativo', '')).strip().upper()
-                if ativo and ativo not in ["NAN", "NONE", ""]:
-                    ativos_buscados.add(ativo)
-                    
-                    # Trava de Segurança: Preço Médio (se Yahoo falhar 100%)
-                    preco_custo = 0.0
-                    if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
-                        preco_custo = extrair_numero_br(row['PrecoMedio'])
-                    elif 'Preco' in row and pd.notnull(row['Preco']):
-                        preco_custo = extrair_numero_br(row['Preco'])
-                        
-                    if preco_custo > 0 and ativo not in cotacoes:
-                        cotacoes[ativo] = preco_custo
-
-        # Lê os ativos configurados nas metas
         df_config = ler_planilha("Ativos_Config")
-        if not df_config.empty and 'Email' in df_config.columns:
-            meus_configs = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario]
-            for _, row in meus_configs.iterrows():
+        
+        if not df_invest.empty and 'Email' in df_invest.columns:
+            for _, row in df_invest[df_invest['Email'].astype(str).str.lower() == email_usuario].iterrows():
                 ativo = str(row.get('Ativo', '')).strip().upper()
                 if ativo and ativo not in ["NAN", "NONE", ""]:
                     ativos_buscados.add(ativo)
+                    # Fallback (Preço Médio) se não achar a cotação
+                    pm = extrair_numero_br(row.get('PrecoMedio', row.get('Preco', 0)))
+                    if pm > 0 and ativo not in cotacoes: cotacoes[ativo] = pm
 
-        if not ativos_buscados:
-            return cotacoes
+        if not df_config.empty and 'Email' in df_config.columns:
+            for _, row in df_config[df_config['Email'].astype(str).str.lower() == email_usuario].iterrows():
+                ativo = str(row.get('Ativo', '')).strip().upper()
+                if ativo and ativo not in ["NAN", "NONE", ""]: ativos_buscados.add(ativo)
 
-        # --- BUSCA DO TESOURO DIRETO ---
+        if not ativos_buscados: return cotacoes
+        
+        # -----------------------------------
+        # BUSCA TESOURO DIRETO
+        # -----------------------------------
         titulos_tesouro = []
         try:
-            url_csv = "https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true"
-            df_td = pd.read_csv(url_csv, sep=';', encoding='utf-8-sig', storage_options={'User-Agent': 'Mozilla/5.0'})
+            df_td = pd.read_csv("https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true", sep=';', encoding='utf-8-sig', storage_options={'User-Agent': 'Mozilla/5.0'})
             df_td.columns = [str(c).strip().upper() for c in df_td.columns]
-            
             col_titulo = next((col for col in df_td.columns if 'TÍTULO' in col), df_td.columns[0])
             col_preco = next((col for col in df_td.columns if 'RESGATE' in col or 'PREÇO' in col), df_td.columns[2])
-            
             for _, row in df_td.iterrows():
-                nome_cru = str(row[col_titulo])
-                valor_cru = str(row[col_preco])
-                nome_titulo_limpo = " ".join(nome_cru.upper().split())
-                
-                if nome_titulo_limpo and nome_titulo_limpo != "NAN":
-                    titulos_tesouro.append({"nome": nome_titulo_limpo, "valor": extrair_numero_br(valor_cru)})
-        except Exception as e1:
-            try:
-                headers = {"User-Agent": "Mozilla/5.0"}
-                url_td2 = "https://tesouro.gabriso.com/bonds"
-                res_td2 = requests.get(url_td2, headers=headers, timeout=5)
-                if res_td2.status_code == 200:
-                    data_td2 = res_td2.json()
-                    for bond in data_td2.get("bonds", []):
-                        nome_titulo_limpo = " ".join(str(bond.get("name", "")).upper().split())
-                        titulos_tesouro.append({"nome": nome_titulo_limpo, "valor": float(bond.get("unitary_redemption_value", 0.0))})
-            except Exception as e2:
-                pass
+                nome_limpo = " ".join(str(row[col_titulo]).upper().split())
+                if nome_limpo and nome_limpo != "NAN": titulos_tesouro.append({"nome": nome_limpo, "valor": extrair_numero_br(row[col_preco])})
+        except:
+            pass
 
         mapa_ativos = {" ".join(a.upper().split()): a for a in ativos_buscados}
         ativos_ja_encontrados = set()
-        
         for titulo in titulos_tesouro:
-            nome = titulo["nome"]
-            valor = titulo["valor"]
-            if nome in mapa_ativos:
-                nome_original = mapa_ativos[nome]
-                cotacoes[nome_original] = valor # Sobrescreve com o preço real
+            if titulo["nome"] in mapa_ativos:
+                nome_original = mapa_ativos[titulo["nome"]]
+                cotacoes[nome_original] = titulo["valor"]
                 ativos_ja_encontrados.add(nome_original)
-                
-        ativos_buscados = ativos_buscados - ativos_ja_encontrados
 
-        # --- BUSCA YAHOO FINANCE (AÇÕES, FIIs, STOCKS, REITs) ---
+        ativos_buscados = ativos_buscados - ativos_ja_encontrados
+        
+        # -----------------------------------
+        # BUSCA YAHOO FINANCE (NOVO MOTOR V3)
+        # -----------------------------------
         if ativos_buscados:
-            tickers_yf = []
-            mapa_tickers = {}
-            tem_exterior = False
+            tickers_yf, mapa_tickers, tem_exterior = [], {}, False
             
             for ativo in ativos_buscados:
                 ticker = ativo
-                if "." not in ticker and re.search(r'\d+$', ticker):
+                # REGRA UNIVERSAL: Se não tem ponto e termina com número (ex: BOVA11, CPFE3), é do Brasil. 
+                if "." not in ticker and re.search(r'\d+$', ticker): 
                     ticker = f"{ticker}.SA"
-                
-                if not ticker.endswith(".SA"):
-                    tem_exterior = True
+                    
+                if not ticker.endswith(".SA"): tem_exterior = True
                     
                 tickers_yf.append(ticker)
                 mapa_tickers[ticker] = ativo 
 
-            if tem_exterior:
-                tickers_yf.append("BRL=X")
-
+            if tem_exterior: tickers_yf.append("BRL=X")
+            
             try:
-                # BUSCA DOS ÚLTIMOS 5 DIAS PARA FUGIR DO FIM DE SEMANA
+                # 5 dias para garantir que pulamos feriados e finais de semana
                 df_raw = yf.download(list(set(tickers_yf)), period="5d", progress=False, ignore_tz=True)
                 
                 if not df_raw.empty:
-                    if isinstance(df_raw.columns, pd.MultiIndex):
-                        lvl_0 = df_raw.columns.get_level_values(0)
-                        lvl_1 = df_raw.columns.get_level_values(1)
-                        if 'Close' in lvl_0: df_prices = df_raw['Close']
-                        elif 'Adj Close' in lvl_0: df_prices = df_raw['Adj Close']
-                        elif 'Close' in lvl_1: df_prices = df_raw.xs('Close', axis=1, level=1)
-                        elif 'Adj Close' in lvl_1: df_prices = df_raw.xs('Adj Close', axis=1, level=1)
-                        else: df_prices = pd.DataFrame()
-                    else:
-                        col = 'Close' if 'Close' in df_raw.columns else 'Adj Close'
-                        if col in df_raw.columns:
-                            df_prices = df_raw[[col]].copy()
-                            df_prices.columns = [tickers_yf[0]]
-                        else:
-                            df_prices = pd.DataFrame()
-                            
-                    if isinstance(df_prices, pd.Series):
-                        df_prices = df_prices.to_frame(name=tickers_yf[0])
+                    # Pega a última linha válida (último pregão fechado preenchendo buracos)
+                    s_last = df_raw.ffill().iloc[-1]
+                    
+                    # Passo 1: Descobrir o preço do Dólar
+                    cotacao_dolar = 1.0
+                    if tem_exterior:
+                        for p_col in ['Close', 'Adj Close']:
+                            if isinstance(s_last.index, pd.MultiIndex):
+                                if (p_col, "BRL=X") in s_last.index:
+                                    cotacao_dolar = float(s_last[(p_col, "BRL=X")])
+                                    break
+                                elif ("BRL=X", p_col) in s_last.index:
+                                    cotacao_dolar = float(s_last[("BRL=X", p_col)])
+                                    break
+                            else:
+                                if "BRL=X" in tickers_yf and len(set(tickers_yf)) == 1:
+                                    cotacao_dolar = float(s_last.get(p_col, 1.0))
+                                    break
 
-                    if not df_prices.empty:
-                        # Extrai Cotação do Dólar válida mais recente
-                        cotacao_dolar = 1.0
-                        if tem_exterior and "BRL=X" in df_prices.columns:
-                            try:
-                                s_usd = df_prices["BRL=X"].dropna()
-                                if not s_usd.empty:
-                                    cotacao_dolar = float(s_usd.iloc[-1])
-                            except:
-                                cotacao_dolar = 1.0
+                    # Passo 2: Descobrir o preço dos Ativos
+                    for ticker in tickers_yf:
+                        if ticker == "BRL=X": continue
+                        
+                        preco = None
+                        for p_col in ['Close', 'Adj Close']:
+                            if isinstance(s_last.index, pd.MultiIndex):
+                                if (p_col, ticker) in s_last.index:
+                                    preco = s_last[(p_col, ticker)]
+                                    break
+                                elif (ticker, p_col) in s_last.index:
+                                    preco = s_last[(ticker, p_col)]
+                                    break
+                            else:
+                                ativos_pedidos = set([t for t in tickers_yf if t != "BRL=X"])
+                                if len(ativos_pedidos) == 1:
+                                    preco = s_last.get(p_col)
+                                    break
+                        
+                        # Se encontrou o preço e não é nulo, atualiza o dicionário principal
+                        if preco is not None and not pd.isna(preco):
+                            preco_float = float(preco)
+                            # Se for exterior (não tem .SA no final), multiplica pelo dólar
+                            if not ticker.endswith(".SA"):
+                                preco_float = preco_float * cotacao_dolar
                                 
-                        # Atualiza a carteira com o último pregão válido de cada ativo
-                        for ticker in tickers_yf:
-                            if ticker == "BRL=X": continue
-                            try:
-                                if ticker in df_prices.columns:
-                                    s_ticker = df_prices[ticker].dropna()
-                                    if not s_ticker.empty:
-                                        preco_original = float(s_ticker.iloc[-1])
-                                        
-                                        if not ticker.endswith(".SA"):
-                                            preco_final = preco_original * cotacao_dolar
-                                        else:
-                                            preco_final = preco_original
-                                            
-                                        cotacoes[mapa_tickers[ticker]] = preco_final
-                            except Exception:
-                                pass
-            except Exception as e:
-                print(f"Aviso: Falha no Yahoo Finance: {e}")
-
+                            cotacoes[mapa_tickers[ticker]] = preco_float
+                            
+            except Exception as e: 
+                print(f"Alerta na API YF: {e}")
+                
         return cotacoes
     except Exception as e:
-        print(f"Erro geral ao ler cotações: {e}")
+        print(f"Erro geral: {e}")
         return cotacoes
 
-# ==========================================
-# MÁGICA DO CACHE: Agrupamento personalizado na RAM
-# ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def obter_ativos_por_categoria(email_usuario):
-    cat_dict = {
-        "Renda Fixa": [], "Ações": [], "FIIs": [], 
-        "Stocks": [], "REITs": [], "ETFs": []
-    }
-    
+    cat_dict = {"Renda Fixa": [], "Ações": [], "FIIs": [], "Stocks": [], "REITs": [], "ETFs": []}
     try:
         df_config = ler_planilha("Ativos_Config")
-        
         if not df_config.empty and 'Email' in df_config.columns:
-            meus_ativos = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario.strip().lower()]
-            
-            for _, row in meus_ativos.iterrows():
-                categoria_bruta = str(row.get('Categoria', '')).strip().upper()
-                ativo = str(row.get('Ativo', '')).strip().upper()
-                
+            for _, row in df_config[df_config['Email'].astype(str).str.lower() == email_usuario.strip().lower()].iterrows():
+                categoria_bruta, ativo = str(row.get('Categoria', '')).strip().upper(), str(row.get('Ativo', '')).strip().upper()
                 categoria = ""
                 if categoria_bruta in ["AÇÕES", "ACOES", "AÇÃO", "ACAO"]: categoria = "Ações"
                 elif categoria_bruta in ["FIIS", "FII"]: categoria = "FIIs"
@@ -446,45 +385,21 @@ def obter_ativos_por_categoria(email_usuario):
                 elif categoria_bruta in ["STOCKS", "STOCK"]: categoria = "Stocks"
                 elif categoria_bruta in ["REITS", "REIT"]: categoria = "REITs"
                 elif categoria_bruta in ["ETFS", "ETF"]: categoria = "ETFs"
-                
-                if ativo and ativo != "NAN" and categoria:
-                    if ativo not in cat_dict[categoria]:
-                        cat_dict[categoria].append(ativo)
-                        
+                if ativo and ativo != "NAN" and categoria and ativo not in cat_dict[categoria]: cat_dict[categoria].append(ativo)
         try:
-            url_td = "https://tesouro.gabriso.com/bonds"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            res_td = requests.get(url_td, headers=headers, timeout=10)
-            
+            res_td = requests.get("https://tesouro.gabriso.com/bonds", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             if res_td.status_code == 200:
-                data_td = res_td.json()
-                palavras_permitidas = ["IPCA+", "SELIC", "PREFIXADO"]
-                palavras_nao_permitidas = ["EDUCA", "APOSENTADORIA"]
-                
-                for bond in data_td.get("bonds", []):
+                for bond in res_td.json().get("bonds", []):
                     nome = str(bond.get("name", "")).strip().upper()
-                    
-                    tem_permitida = any(p in nome for p in palavras_permitidas)
-                    tem_proibida = any(p in nome for p in palavras_nao_permitidas)
-                    
-                    if tem_permitida and not tem_proibida:
-                        if nome not in cat_dict["Renda Fixa"]:
-                            cat_dict["Renda Fixa"].append(nome)
-        except Exception as e:
-            pass
-            
-        for cat in cat_dict:
-            cat_dict[cat].sort()
-            
-        cat_dict_filtrado = {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
-            
-        return cat_dict_filtrado
-        
-    except Exception as e:
+                    if any(p in nome for p in ["IPCA+", "SELIC", "PREFIXADO"]) and not any(p in nome for p in ["EDUCA", "APOSENTADORIA"]):
+                        if nome not in cat_dict["Renda Fixa"]: cat_dict["Renda Fixa"].append(nome)
+        except: pass
+        for cat in cat_dict: cat_dict[cat].sort()
         return {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
+    except: return {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
 
 # ==========================================
-# REGISTRAR DEPÓSITOS (COM MÁSCARA BRASILEIRA)
+# REGISTRAR DEPÓSITOS E COMPRAS
 # ==========================================
 def registrar_deposito(email, data, valor):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -500,7 +415,6 @@ def registrar_deposito(email, data, valor):
             sheet.append_row(["Email", "Data", "Valor"])
             
         valor_br = f"{float(valor):.2f}".replace('.', ',')
-        
         sheet.append_row([email, data, valor_br], value_input_option='USER_ENTERED')
         
         st.cache_data.clear() 
@@ -509,9 +423,6 @@ def registrar_deposito(email, data, valor):
         st.error(f"Erro ao salvar depósito: {e}")
         return False
 
-# ==========================================
-# REGISTRAR COMPRAS (COM MÁSCARA BRASILEIRA)
-# ==========================================
 def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, observacao=""):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
@@ -537,6 +448,9 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, obs
         st.error(f"Erro ao salvar compra: {e}")
         return False
 
+# ==========================================
+# AUTENTICAÇÃO E PERFIL
+# ==========================================
 def conectar_planilha(aba):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -662,6 +576,9 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
     except Exception as e:
         return False, f"Erro ao atualizar perfil: {e}"
 
+# ==========================================
+# 8. AUDITORIA E BACKUP
+# ==========================================
 def atualizar_historico_usuario(email, nome_aba, df_editado):
     try:
         df_full = ler_planilha(nome_aba)
@@ -685,10 +602,8 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
         df_final = df_final[cabecalho_original]
         
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        
         chave_gcp = st.secrets["gcp_service_account"]
         chave_dict = json.loads(chave_gcp) if isinstance(chave_gcp, str) else dict(chave_gcp)
-            
         creds = Credentials.from_service_account_info(chave_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
@@ -709,10 +624,8 @@ def deletar_registros_usuario(nome_aba, email):
     try:
         NOME_PLANILHA = "App_Investimentos" 
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        
         chave_gcp = st.secrets["gcp_service_account"]
         chave_dict = json.loads(chave_gcp) if isinstance(chave_gcp, str) else dict(chave_gcp)
-            
         creds = Credentials.from_service_account_info(chave_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
@@ -749,14 +662,11 @@ def deletar_registros_usuario(nome_aba, email):
 def inserir_lote_registros(nome_aba, df):
     if df.empty:
         return True, "Planilha vazia, nada a inserir."
-
     try:
         NOME_PLANILHA = "App_Investimentos"
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        
         chave_gcp = st.secrets["gcp_service_account"]
         chave_dict = json.loads(chave_gcp) if isinstance(chave_gcp, str) else dict(chave_gcp)
-            
         creds = Credentials.from_service_account_info(chave_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
@@ -771,3 +681,28 @@ def inserir_lote_registros(nome_aba, df):
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao salvar no Google Sheets: {str(e)}"
+
+# ==========================================
+# 9. PAINEL DE ADMINISTRADOR
+# ==========================================
+def listar_todos_usuarios():
+    """Busca a lista de todos os usuários cadastrados na planilha para o Painel Admin"""
+    try:
+        df_usuarios = ler_planilha("Usuarios")
+        if df_usuarios.empty:
+            return []
+        
+        df_usuarios.columns = [str(c).strip() for c in df_usuarios.columns]
+        
+        usuarios_lista = []
+        for _, row in df_usuarios.iterrows():
+            email = str(row.get('Email', '')).strip().lower()
+            nome = str(row.get('Nome', 'Sem Nome')).strip()
+            
+            if email:
+                usuarios_lista.append({"email": email, "nome": nome})
+                
+        return usuarios_lista
+    except Exception as e:
+        print(f"Erro ao listar usuários: {e}")
+        return []
