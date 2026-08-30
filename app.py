@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
-from utils import ler_planilha, registrar_novo_usuario
+from utils import ler_planilha, registrar_novo_usuario, listar_todos_usuarios
 
 # A configuração da página DEVE ser a primeira linha do app
 st.set_page_config(page_title="App Investimentos v2.0", layout="wide", initial_sidebar_state="expanded")
@@ -195,7 +195,7 @@ def painel_admin():
     
     st.info("💡 **Dica:** Você não precisa rolar a lista! Basta clicar na caixa abaixo e **começar a digitar** o nome ou e-mail.")
     
-    from utils import listar_todos_usuarios
+    # A chamada da função agora usa o import do topo do arquivo
     lista_users = listar_todos_usuarios()
     
     if lista_users:
@@ -214,7 +214,6 @@ def painel_admin():
             st.session_state.email = escolha
             st.session_state.nome = opcoes[escolha].split(' (')[0]
             st.rerun()
-
 
 # ==========================================
 # ROTEAMENTO NATIVO (ST.NAVIGATION)
