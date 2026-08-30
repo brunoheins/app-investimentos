@@ -82,7 +82,7 @@ def render():
             col_c2.metric(
                 "Aporte Pendente", 
                 formata_br(saldo_pendente),
-                help="Valor estrito dos depósitos que ainda não foi alocado em compras. Este valor não soma dividendos recebidos."
+                help="Valor depositado que ainda não foi alocado em compras. Este valor não soma dividendos recebidos."
             )
             col_c3.metric("Patrimônio Real", formata_br(patrimonio_real))
             col_c4.metric("Evolução", f"{evolucao_total_carteira:+.2f}%".replace('.', ','))
