@@ -3,6 +3,13 @@ from utils import atualizar_dados_perfil
 
 def render():
     st.title("👤 Meu Perfil")
+    
+    # --- BLINDAGEM CONTRA ADMINS ---
+    if st.session_state.get('email') != st.session_state.get('email_autenticado'):
+        st.error("⚠️ **Modo Visualização Ativo:** Como administrador, você não tem permissão para alterar senhas ou dados pessoais de outros usuários.")
+        st.stop()
+    # -------------------------------
+
     st.markdown("Atualize seus dados cadastrais. Para garantir a segurança dos seus investimentos, **o e-mail de acesso não pode ser alterado.**")
 
     with st.form("form_perfil"):
@@ -20,7 +27,8 @@ def render():
         nova_senha = c3.text_input("Nova Senha", type="password")
         confirma_senha = c4.text_input("Confirme a Nova Senha", type="password")
         
-        submit = st.form_submit_button("💾 Salvar Alterações", use_container_width=True, type="primary")
+        # ATUALIZADO: width='stretch'
+        submit = st.form_submit_button("💾 Salvar Alterações", width='stretch', type="primary")
         
         if submit:
             if nova_senha or confirma_senha:
