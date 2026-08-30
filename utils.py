@@ -19,22 +19,17 @@ def extrair_numero_br(valor):
     if isinstance(valor, (int, float)):
         return float(valor)
         
-    # Limpa R$, símbolos e espaços em branco
     v = str(valor).upper().replace('R$', '').replace('%', '').strip()
     
     if not v:
         return 0.0
         
-    # Se o número tem Ponto e Vírgula (ex: 1.250,50 ou 1,250.50)
     if '.' in v and ',' in v:
         if v.rfind(',') > v.rfind('.'):
-            # Formato Brasileiro (1.250,50) -> Remove ponto, troca vírgula por ponto
             v = v.replace('.', '').replace(',', '.')
         else:
-            # Formato Americano (1,250.50) -> Remove vírgula
             v = v.replace(',', '')
             
-    # Se só tem Vírgula (ex: 295,17) -> Assume que é decimal brasileiro
     elif ',' in v:
         v = v.replace(',', '.')
         
@@ -62,15 +57,12 @@ def ler_planilha(aba_nome):
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet(aba_nome)
         
-        # Lê o texto exato para evitar que a biblioteca americana engula nossas vírgulas
         valores = sheet.get_all_values()
         if not valores:
             return pd.DataFrame()
         
-        # Constrói a tabela
         df = pd.DataFrame(valores[1:], columns=valores[0])
         
-        # Força a conversão BR apenas nas colunas que sabemos que são números
         colunas_numericas = [
             'Quantidade', 'PrecoMedio', 'PrecoAtual', 'Valor', 'Peso', 'Peso (%)',
             'RF', 'RV', 'RV_Brasil', 'RV_Exterior', 
@@ -99,7 +91,6 @@ def salvar_configuracao(email, dados_dict):
         valores = sheet.get_all_values()
         df = pd.DataFrame(valores[1:], columns=valores[0]) if len(valores) > 1 else pd.DataFrame(columns=["Email"])
         
-        # Garante que todos os valores matemáticos sejam passados como float
         row_values = [
             email, 
             float(dados_dict['RF']), float(dados_dict['RV']), 
@@ -129,13 +120,11 @@ def salvar_configuracao(email, dados_dict):
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def buscar_setor_yahoo(ativo, categoria):
-    """Busca o setor do ativo no Yahoo Finance ou no Dicionário Inteligente (FIIs)"""
     if categoria == "Renda Fixa":
         return "Renda Fixa"
         
     t_clean = str(ativo).upper().replace(".SA", "").strip()
 
-    # --- DICIONÁRIO INTELIGENTE PARA OS MAIORES FIIs DA B3 ---
     if categoria == "FIIs":
         fiis_papel = ["MXRF11", "KNCR11", "KNIP11", "CPTS11", "IRDM11", "RECR11", "VGIR11", "VRTA11", "HCTR11", "DEVA11", "VGHF11", "MCCI11", "CVBI11", "HGCR11", "KNSC11", "RBRR11", "URPR11", "HABT11", "VCJR11", "ARRI11", "RBRY11", "OUJP11", "CACR11", "NCHB11", "KNHY11", "SNCI11", "RZAK11", "BARI11"]
         fiis_logistica = ["HGLG11", "BTLG11", "XPLG11", "VILG11", "BRCO11", "LVBI11", "GGRC11", "HSLG11", "RBRL11", "SDIL11", "TRXF11", "GALG11", "GARE11", "HLG11", "FIIB11", "VTLG11", "PATL11"]
@@ -153,7 +142,6 @@ def buscar_setor_yahoo(ativo, categoria):
         if t_clean in fiis_fof: return "Fundo de Fundos (FOF)"
         if t_clean in fiis_agro: return "Fiagro"
 
-    # --- FALLBACK: YAHOO FINANCE PARA AÇÕES, STOCKS, REITs e ETFs ---
     ticker = ativo
     if categoria in ["Ações", "FIIs"]:
         if "." not in ticker and re.search(r'\d+$', ticker):
@@ -224,12 +212,10 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
                 setor = buscar_setor_yahoo(ativo, categoria)
             
             if ativo and ativo != "NAN":
-                # Salva o peso nativamente como FLOAT
                 novas_linhas.append([email, categoria, ativo, float(peso), setor])
                 
         dados_finais = [["Email", "Categoria", "Ativo", "Peso", "Setor"]]
         
-        # REESCREVE A PLANILHA ANTIGA LIMPANDO OS TEXTOS/APÓSTROFOS
         if not df_filtered.empty:
             for _, r in df_filtered.iterrows():
                 setor_r = str(r.get('Setor', '')).strip()
@@ -263,58 +249,55 @@ def salvar_ativos_categoria(email, categoria, df_ativos):
 # COTAÇÕES EM TEMPO REAL (YFINANCE + TESOURO + CÂMBIO)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
-def obter_cotacoes():
+def obter_cotacoes(email_usuario=None):
     """
-    Busca os preços em tempo real usando Python.
-    Converte automaticamente ativos internacionais (EUA) para Reais (BRL).
+    Busca os preços em tempo real usando Python (Últimos 5 dias para fugir de FDS/Feriados).
     """
-    import yfinance as yf
-    import requests
-    import re
-    import pandas as pd
-    
     cotacoes = {}
     ativos_buscados = set()
     
     try:
-        # --- 1. DESCOBRIR QUAIS ATIVOS O USUÁRIO TEM ---
-        if 'email' in st.session_state:
+        # Define o e-mail: Se não for passado na função, pega do session_state
+        if email_usuario is None and 'email' in st.session_state:
             email_usuario = st.session_state.email.strip().lower()
+        elif email_usuario:
+            email_usuario = email_usuario.strip().lower()
             
-            # Lê os ativos já comprados
-            df_invest = ler_planilha("Investimentos")
-            if not df_invest.empty and 'Email' in df_invest.columns:
-                meus_invest = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email_usuario]
-                for _, row in meus_invest.iterrows():
-                    ativo = str(row.get('Ativo', '')).strip().upper()
-                    if ativo and ativo not in ["NAN", "NONE", ""]:
-                        ativos_buscados.add(ativo)
+        if not email_usuario: return cotacoes
+            
+        # Lê os ativos já comprados para pré-popular o fallback de Preço Médio
+        df_invest = ler_planilha("Investimentos")
+        if not df_invest.empty and 'Email' in df_invest.columns:
+            meus_invest = df_invest[df_invest['Email'].astype(str).str.strip().str.lower() == email_usuario]
+            for _, row in meus_invest.iterrows():
+                ativo = str(row.get('Ativo', '')).strip().upper()
+                if ativo and ativo not in ["NAN", "NONE", ""]:
+                    ativos_buscados.add(ativo)
+                    
+                    # Trava de Segurança: Preço Médio (se Yahoo falhar 100%)
+                    preco_custo = 0.0
+                    if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
+                        preco_custo = extrair_numero_br(row['PrecoMedio'])
+                    elif 'Preco' in row and pd.notnull(row['Preco']):
+                        preco_custo = extrair_numero_br(row['Preco'])
                         
-                        # Trava de Segurança: Pré-carrega o custo médio (Fallback)
-                        preco_custo = 0.0
-                        if 'PrecoMedio' in row and pd.notnull(row['PrecoMedio']):
-                            preco_custo = extrair_numero_br(row['PrecoMedio'])
-                        elif 'Preco' in row and pd.notnull(row['Preco']):
-                            preco_custo = extrair_numero_br(row['Preco'])
-                            
-                        if preco_custo > 0 and ativo not in cotacoes:
-                            cotacoes[ativo] = preco_custo
+                    if preco_custo > 0 and ativo not in cotacoes:
+                        cotacoes[ativo] = preco_custo
 
-            # Lê os ativos cadastrados nas metas (que podem ainda não ter PrecoMedio)
-            df_config = ler_planilha("Ativos_Config")
-            if not df_config.empty and 'Email' in df_config.columns:
-                meus_configs = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario]
-                for _, row in meus_configs.iterrows():
-                    ativo = str(row.get('Ativo', '')).strip().upper()
-                    if ativo and ativo not in ["NAN", "NONE", ""]:
-                        ativos_buscados.add(ativo)
+        # Lê os ativos configurados nas metas
+        df_config = ler_planilha("Ativos_Config")
+        if not df_config.empty and 'Email' in df_config.columns:
+            meus_configs = df_config[df_config['Email'].astype(str).str.strip().str.lower() == email_usuario]
+            for _, row in meus_configs.iterrows():
+                ativo = str(row.get('Ativo', '')).strip().upper()
+                if ativo and ativo not in ["NAN", "NONE", ""]:
+                    ativos_buscados.add(ativo)
 
         if not ativos_buscados:
             return cotacoes
 
-        # --- 2. BUSCAR TESOURO DIRETO (CSV OFICIAL COM FALLBACK PARA API) ---
+        # --- BUSCA DO TESOURO DIRETO ---
         titulos_tesouro = []
-        
         try:
             url_csv = "https://www.tesourodireto.com.br/documents/d/guest/rendimento-resgatar-csv?download=true"
             df_td = pd.read_csv(url_csv, sep=';', encoding='utf-8-sig', storage_options={'User-Agent': 'Mozilla/5.0'})
@@ -329,26 +312,19 @@ def obter_cotacoes():
                 nome_titulo_limpo = " ".join(nome_cru.upper().split())
                 
                 if nome_titulo_limpo and nome_titulo_limpo != "NAN":
-                    titulos_tesouro.append({
-                        "nome": nome_titulo_limpo,
-                        "valor": extrair_numero_br(valor_cru)
-                    })
+                    titulos_tesouro.append({"nome": nome_titulo_limpo, "valor": extrair_numero_br(valor_cru)})
         except Exception as e1:
             try:
                 headers = {"User-Agent": "Mozilla/5.0"}
                 url_td2 = "https://tesouro.gabriso.com/bonds"
                 res_td2 = requests.get(url_td2, headers=headers, timeout=5)
-                
                 if res_td2.status_code == 200:
                     data_td2 = res_td2.json()
                     for bond in data_td2.get("bonds", []):
                         nome_titulo_limpo = " ".join(str(bond.get("name", "")).upper().split())
-                        titulos_tesouro.append({
-                            "nome": nome_titulo_limpo,
-                            "valor": float(bond.get("unitary_redemption_value", 0.0))
-                        })
+                        titulos_tesouro.append({"nome": nome_titulo_limpo, "valor": float(bond.get("unitary_redemption_value", 0.0))})
             except Exception as e2:
-                print(f"Aviso: Falha ao carregar Tesouro: {e2}")
+                pass
 
         mapa_ativos = {" ".join(a.upper().split()): a for a in ativos_buscados}
         ativos_ja_encontrados = set()
@@ -358,14 +334,12 @@ def obter_cotacoes():
             valor = titulo["valor"]
             if nome in mapa_ativos:
                 nome_original = mapa_ativos[nome]
-                # SOBRESCREVE o preço médio de segurança pelo preço Real Oficial do TD!
-                cotacoes[nome_original] = valor
+                cotacoes[nome_original] = valor # Sobrescreve com o preço real
                 ativos_ja_encontrados.add(nome_original)
                 
-        # Remove os ativos encontrados da fila de busca para não mandar Tesouro pro Yahoo
         ativos_buscados = ativos_buscados - ativos_ja_encontrados
 
-        # --- 3. BUSCAR AÇÕES / FIIs / STOCKS NO YAHOO FINANCE COM CONVERSÃO DE CÂMBIO ---
+        # --- BUSCA YAHOO FINANCE (AÇÕES, FIIs, STOCKS, REITs) ---
         if ativos_buscados:
             tickers_yf = []
             mapa_tickers = {}
@@ -373,25 +347,21 @@ def obter_cotacoes():
             
             for ativo in ativos_buscados:
                 ticker = ativo
-                
-                # Normaliza tickers brasileiros
                 if "." not in ticker and re.search(r'\d+$', ticker):
                     ticker = f"{ticker}.SA"
                 
-                # Detecta se é exterior (Não tem .SA no final)
                 if not ticker.endswith(".SA"):
                     tem_exterior = True
                     
                 tickers_yf.append(ticker)
                 mapa_tickers[ticker] = ativo 
 
-            # Injeta a busca pelo Dólar se houver ativo estrangeiro
             if tem_exterior:
                 tickers_yf.append("BRL=X")
 
             try:
-                # Traz os dados usando blindagem anti-quebra (MultiIndex do YFinance)
-                df_raw = yf.download(list(set(tickers_yf)), period="1d", progress=False, ignore_tz=True)
+                # BUSCA DOS ÚLTIMOS 5 DIAS PARA FUGIR DO FIM DE SEMANA
+                df_raw = yf.download(list(set(tickers_yf)), period="5d", progress=False, ignore_tz=True)
                 
                 if not df_raw.empty:
                     if isinstance(df_raw.columns, pd.MultiIndex):
@@ -414,25 +384,25 @@ def obter_cotacoes():
                         df_prices = df_prices.to_frame(name=tickers_yf[0])
 
                     if not df_prices.empty:
-                        # 3.1 Pega a cotação do Dólar
+                        # Extrai Cotação do Dólar válida mais recente
                         cotacao_dolar = 1.0
                         if tem_exterior and "BRL=X" in df_prices.columns:
                             try:
-                                cotacao_dolar = float(df_prices["BRL=X"].iloc[-1])
+                                s_usd = df_prices["BRL=X"].dropna()
+                                if not s_usd.empty:
+                                    cotacao_dolar = float(s_usd.iloc[-1])
                             except:
-                                cotacao_dolar = 1.0 # Falha de segurança, mantém 1x1
+                                cotacao_dolar = 1.0
                                 
-                        # 3.2 Distribui as cotações multiplicando o câmbio quando necessário
+                        # Atualiza a carteira com o último pregão válido de cada ativo
                         for ticker in tickers_yf:
-                            if ticker == "BRL=X": 
-                                continue
-                                
+                            if ticker == "BRL=X": continue
                             try:
                                 if ticker in df_prices.columns:
-                                    preco_original = float(df_prices[ticker].iloc[-1])
-                                    
-                                    if pd.notna(preco_original):
-                                        # SE NÃO FOR DO BRASIL, MULTIPLICA PELO DÓLAR!
+                                    s_ticker = df_prices[ticker].dropna()
+                                    if not s_ticker.empty:
+                                        preco_original = float(s_ticker.iloc[-1])
+                                        
                                         if not ticker.endswith(".SA"):
                                             preco_final = preco_original * cotacao_dolar
                                         else:
@@ -454,18 +424,12 @@ def obter_cotacoes():
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def obter_ativos_por_categoria(email_usuario):
-    """
-    Lê a aba Ativos_Config para RV e puxa o Tesouro Direto via API para Renda Fixa.
-    Oculta categorias que não possuem nenhum ativo configurado.
-    """
-    # Inicializa todas as categorias possíveis
     cat_dict = {
         "Renda Fixa": [], "Ações": [], "FIIs": [], 
         "Stocks": [], "REITs": [], "ETFs": []
     }
     
     try:
-        # 1. Puxa as configurações personalizadas do usuário (Ações, FIIs, etc)
         df_config = ler_planilha("Ativos_Config")
         
         if not df_config.empty and 'Email' in df_config.columns:
@@ -487,7 +451,6 @@ def obter_ativos_por_categoria(email_usuario):
                     if ativo not in cat_dict[categoria]:
                         cat_dict[categoria].append(ativo)
                         
-        # 2. INJEÇÃO DO TESOURO DIRETO: Preenche a Renda Fixa com os títulos públicos atuais
         try:
             url_td = "https://tesouro.gabriso.com/bonds"
             headers = {"User-Agent": "Mozilla/5.0"}
@@ -508,43 +471,17 @@ def obter_ativos_por_categoria(email_usuario):
                         if nome not in cat_dict["Renda Fixa"]:
                             cat_dict["Renda Fixa"].append(nome)
         except Exception as e:
-            print(f"Aviso: Falha ao carregar Tesouro Direto nos menus: {e}")
+            pass
             
-        # 3. Coloca todas as categorias em ordem alfabética para facilitar o clique
         for cat in cat_dict:
             cat_dict[cat].sort()
             
-        # 4. MÁGICA DA OCULTAÇÃO: Filtra e retorna apenas as categorias que têm pelo menos 1 ativo
         cat_dict_filtrado = {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
             
         return cat_dict_filtrado
         
     except Exception as e:
-        print(f"Erro ao agrupar ativos: {e}")
-        # Se der erro, retorna o dicionário limpo também
         return {categoria: ativos for categoria, ativos in cat_dict.items() if len(ativos) > 0}
-        
-def registrar_deposito(email, data, valor):
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    try:
-        creds_dict = json.loads(st.secrets["gcp_service_account"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        
-        try:
-            sheet = client.open("App_Investimentos").worksheet("Depositos")
-        except:
-            sheet = client.open("App_Investimentos").add_worksheet(title="Depositos", rows=100, cols=3)
-            sheet.append_row(["Email", "Data", "Valor"])
-            
-        # Garante que o valor seja salvo nativamente como FLOAT (sem virar texto)
-        sheet.append_row([email, data, float(valor)], value_input_option='USER_ENTERED')
-        
-        st.cache_data.clear() 
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar depósito: {e}")
-        return False
 
 # ==========================================
 # REGISTRAR DEPÓSITOS (COM MÁSCARA BRASILEIRA)
@@ -562,7 +499,6 @@ def registrar_deposito(email, data, valor):
             sheet = client.open("App_Investimentos").add_worksheet(title="Depositos", rows=100, cols=3)
             sheet.append_row(["Email", "Data", "Valor"])
             
-        # Transforma o ponto em vírgula para não virar data no Google Sheets
         valor_br = f"{float(valor):.2f}".replace('.', ',')
         
         sheet.append_row([email, data, valor_br], value_input_option='USER_ENTERED')
@@ -584,9 +520,6 @@ def registrar_compra(email, data, categoria, ativo, quantidade, preco_medio, obs
         client = gspread.authorize(creds)
         sheet = client.open("App_Investimentos").worksheet("Investimentos")
         
-        # MÁGICA DE LOCALIZAÇÃO (pt-BR):
-        # Transforma os floats do Python em strings com vírgula (Ex: "182,02").
-        # Isso garante que a planilha entenda que é um número financeiro!
         qtd_br = f"{float(quantidade):.8f}".replace('.', ',').rstrip('0').rstrip(',')
         if not qtd_br: 
             qtd_br = "0"
@@ -637,7 +570,7 @@ def registrar_novo_usuario(nome, email, senha):
         
         sheet.append_row(nova_linha)
         
-        st.cache_data.clear() # Limpa a memória após novo cadastro
+        st.cache_data.clear()
         return True, "✅ Cadastro enviado com sucesso! Aguarde a liberação do administrador."
     except Exception as e:
         return False, f"Erro ao cadastrar: {e}"
@@ -699,7 +632,7 @@ def redefinir_senha_aprovada(email, nova_senha):
             if len(linha) > max(idx_email, idx_senha):
                 if str(linha[idx_email]).strip().lower() == email_lower:
                     sheet.update_cell(i, idx_senha + 1, nova_senha) 
-                    st.cache_data.clear() # Limpa a memória após escrever
+                    st.cache_data.clear()
                     return True, "✅ Senha alterada com sucesso! Você já pode fazer login."
         return False, "Usuário não encontrado."
     except Exception as e:
@@ -722,7 +655,7 @@ def atualizar_dados_perfil(email, novo_nome, nova_senha):
                 if nova_senha and 'senha' in cabecalho:
                     sheet.update_cell(i, cabecalho.index('senha') + 1, nova_senha)
                 
-                st.cache_data.clear() # Limpa a memória após escrever
+                st.cache_data.clear()
                 return True, "✅ Perfil atualizado com sucesso!"
                 
         return False, "Usuário não encontrado."
@@ -751,7 +684,6 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
                 df_final[col] = ""
         df_final = df_final[cabecalho_original]
         
-        # Conexão unificada com o padrão do Google Cloud
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
         chave_gcp = st.secrets["gcp_service_account"]
@@ -767,7 +699,7 @@ def atualizar_historico_usuario(email, nome_aba, df_editado):
         dados_salvar = [df_final.columns.values.tolist()] + df_final.fillna("").values.tolist()
         aba.update(dados_salvar)
         
-        st.cache_data.clear() # Limpa a memória após edição de massa
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Erro ao salvar edição: {e}")
@@ -809,7 +741,7 @@ def deletar_registros_usuario(nome_aba, email):
             if len(linhas_mantidas) > 0:
                 aba.append_rows(linhas_mantidas, value_input_option='USER_ENTERED')
             
-        st.cache_data.clear() # Limpa a memória após exclusão
+        st.cache_data.clear()
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao apagar dados do Google Sheets: {str(e)}"
@@ -835,7 +767,7 @@ def inserir_lote_registros(nome_aba, df):
         
         aba.append_rows(dados, value_input_option='USER_ENTERED')
         
-        st.cache_data.clear() # Limpa a memória após inserção em massa
+        st.cache_data.clear()
         return True, "Sucesso"
     except Exception as e:
         return False, f"Erro ao salvar no Google Sheets: {str(e)}"
