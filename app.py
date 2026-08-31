@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
-from utils import ler_planilha, registrar_novo_usuario, listar_todos_usuarios
+from utils import ler_planilha, registrar_novo_usuario, db
 
 # A configuração da página DEVE ser a primeira linha do app
 st.set_page_config(page_title="App Investimentos v2.0", layout="wide", initial_sidebar_state="expanded")
@@ -19,8 +19,8 @@ st.markdown("""
         h3 { font-size: 1.15rem !important; }
         p, div, span, label { font-size: 0.95rem !important; }
         
-        /* 3. ESPREME A BARRA LATERAL AO MÁXIMO */
-        [data-testid="stSidebar"] { padding-top: 0.5rem !important; width: 17rem !important; min-width: 17rem !important; }
+        /* 3. ESPREME A BARRA LATERAL AO MÁXIMO E CORRIGE A LINHA */
+        [data-testid="stSidebar"] { padding-top: 0.5rem !important; width: 17rem !important; min-width: 17rem !important; transition: background-color 0.3s ease; }
         [data-testid="stSidebarNav"] { padding-top: 0rem !important; padding-bottom: 0.5rem !important; }
         
         /* Reduz o espaço entre os botões de navegação */
@@ -77,41 +77,27 @@ def tela_acesso():
                         email_formatado = email_input.strip().lower()
                         senha_formatada = senha_input.strip()
                         
-                        df_usuarios = ler_planilha("Usuarios")
-                        if not df_usuarios.empty:
-                            df_usuarios['Email'] = df_usuarios['Email'].astype(str).str.strip().str.lower()
-                            df_usuarios['Senha'] = df_usuarios['Senha'].astype(str).str.strip()
-                            
-                            usuario = df_usuarios[(df_usuarios['Email'] == email_formatado) & (df_usuarios['Senha'] == senha_formatada)]
-                            
-                            if not usuario.empty:
-                                status_usuario = str(usuario.iloc[0].get('Status', 'Pendente')).strip()
-                                if status_usuario == 'Ativo':
-                                    st.session_state.logado = True
-                                    st.session_state.email = email_formatado
-                                    st.session_state.nome = usuario.iloc[0].get('Nome', 'Usuário')
-                                    
-                                    st.session_state.email_autenticado = email_formatado
-                                    
-                                    # Verificação flexível para admin.
-                                    admin_val = usuario.iloc[0].get('Admin', 'FALSE')
-                                    if str(admin_val).strip().upper() == 'TRUE':
-                                        st.session_state.is_admin = True
-                                    else:
-                                        st.session_state.is_admin = False
-                                        
-                                    st.session_state.admin_email = email_formatado if st.session_state.is_admin else ""
-                                    
-                                    st.cache_data.clear() 
-                                    st.rerun()
-                                elif status_usuario == 'Pendente':
-                                    st.warning("⏳ Seu cadastro está em análise pelo administrador.")
-                                else:
-                                    st.error("❌ Seu acesso foi revogado.")
+                        usuario = db.usuarios.find_one({"_id": email_formatado, "senha": senha_formatada})
+                        
+                        if usuario:
+                            status_usuario = str(usuario.get('status', 'Pendente')).strip().capitalize()
+                            if status_usuario == 'Ativo':
+                                st.session_state.logado = True
+                                st.session_state.email = email_formatado
+                                st.session_state.nome = usuario.get('nome', 'Usuário')
+                                
+                                st.session_state.email_autenticado = email_formatado
+                                st.session_state.is_admin = usuario.get('admin', False)
+                                st.session_state.admin_email = email_formatado if st.session_state.is_admin else ""
+                                
+                                st.cache_data.clear() 
+                                st.rerun()
+                            elif status_usuario == 'Pendente':
+                                st.warning("⏳ Seu cadastro está em análise pelo administrador.")
                             else:
-                                st.error("❌ Usuário ou senha incorretos.")
+                                st.error("❌ Seu acesso foi revogado.")
                         else:
-                            st.error("Erro ao acessar base de dados.")
+                            st.error("❌ Usuário ou senha incorretos.")
 
         with tab_cadastro:
             with st.form("form_cadastro", clear_on_submit=True):
@@ -191,29 +177,93 @@ def tela_acesso():
 # ==========================================
 def painel_admin():
     st.title("🛠️ Painel do Administrador")
-    st.markdown("Selecione um usuário abaixo para visualizar o sistema como se fosse ele. Suas permissões de alteração de dados sensíveis continuarão bloqueadas.")
     
-    st.info("💡 **Dica:** Você não precisa rolar a lista! Basta clicar na caixa abaixo e **começar a digitar** o nome ou e-mail.")
+    tab_gestao, tab_personificar = st.tabs(["👥 Gestão de Acessos", "🎭 Visualizar Como (Personificar)"])
     
-    # A chamada da função agora usa o import do topo do arquivo
-    lista_users = listar_todos_usuarios()
-    
-    if lista_users:
-        opcoes = {u['email']: f"{u['nome']} ({u['email']})" for u in lista_users}
-        emails_list = list(opcoes.keys())
-        current_idx = emails_list.index(st.session_state.email) if st.session_state.email in emails_list else 0
+    with tab_gestao:
+        st.markdown("Pesquise e gerencie a liberação ou revogação de acessos ao sistema.")
+        usuarios = list(db.usuarios.find({}, {"_id": 1, "nome": 1, "status": 1}))
         
-        escolha = st.selectbox(
-            "🔎 Buscar usuário:", 
-            options=emails_list, 
-            format_func=lambda x: opcoes[x],
-            index=current_idx
-        )
+        if usuarios:
+            df_users = pd.DataFrame(usuarios)
+            df_users.rename(columns={"_id": "Email", "nome": "Nome", "status": "Status"}, inplace=True)
+            
+            # --- BLINDAGEM DO ERRO (NORMALIZAÇÃO DE TEXTO) ---
+            if 'Status' not in df_users.columns:
+                df_users['Status'] = 'Pendente'
+            
+            df_users['Status'] = df_users['Status'].fillna('Pendente').astype(str).str.strip().str.capitalize()
+            df_users['Status'] = df_users['Status'].apply(lambda x: x if x in ["Ativo", "Revogado", "Pendente"] else "Pendente")
+            
+            # --- FERRAMENTAS DE PESQUISA E FILTRO ---
+            col_busca, col_filtro = st.columns([2, 1])
+            termo_busca = col_busca.text_input("🔎 Pesquisar por Nome ou E-mail:", "")
+            filtro_status = col_filtro.selectbox("🏷️ Filtrar por Status:", ["Todos", "Pendente", "Ativo", "Revogado"])
+            
+            if filtro_status != "Todos":
+                df_users = df_users[df_users['Status'] == filtro_status]
+                
+            if termo_busca:
+                termo = termo_busca.lower()
+                df_users = df_users[
+                    df_users['Nome'].str.lower().str.contains(termo, na=False) | 
+                    df_users['Email'].str.lower().str.contains(termo, na=False)
+                ]
+            
+            st.markdown(f"**Resultados encontrados: {len(df_users)}**")
+            st.markdown("---")
+            
+            # --- RENDERIZAÇÃO DA LISTA FILTRADA ---
+            if df_users.empty:
+                st.info("Nenhum usuário encontrado com os filtros atuais.")
+            else:
+                for _, row in df_users.iterrows():
+                    c_info, c_status = st.columns([3, 2])
+                    c_info.markdown(f"**{row['Nome']}** <br><span style='color:gray; font-size:0.85em;'>{row['Email']}</span>", unsafe_allow_html=True)
+                    
+                    if row['Email'] == st.session_state.get('admin_email'): 
+                        c_status.info("Seu Usuário (Admin)")
+                    else:
+                        novo_status = c_status.selectbox(
+                            "Status", 
+                            options=["Ativo", "Revogado", "Pendente"], 
+                            index=["Ativo", "Revogado", "Pendente"].index(row['Status']),
+                            key=f"status_gestao_{row['Email']}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        if novo_status != row['Status']:
+                            db.usuarios.update_one({"_id": row['Email']}, {"$set": {"status": novo_status}})
+                            st.toast(f"Status de {row['Nome']} alterado para {novo_status}!", icon="✅")
+                            time.sleep(1) 
+                            st.rerun()
+                            
+                    st.markdown("<hr style='margin: 0.5em 0; border: 0; border-top: 1px dashed #444;'>", unsafe_allow_html=True)
+                    
+    with tab_personificar:
+        st.markdown("Selecione um usuário abaixo para visualizar o sistema como se fosse ele. Suas permissões de alteração continuarão bloqueadas.")
+        st.info("💡 **Dica:** Clique na caixa e **comece a digitar** o nome ou e-mail.")
         
-        if escolha != st.session_state.email:
-            st.session_state.email = escolha
-            st.session_state.nome = opcoes[escolha].split(' (')[0]
-            st.rerun()
+        from utils import listar_todos_usuarios
+        lista_users = listar_todos_usuarios()
+        
+        if lista_users:
+            opcoes = {u['email']: f"{u['nome']} ({u['email']})" for u in lista_users}
+            emails_list = list(opcoes.keys())
+            current_idx = emails_list.index(st.session_state.email) if st.session_state.email in emails_list else 0
+            
+            escolha = st.selectbox(
+                "🔎 Buscar usuário para personificar:", 
+                options=emails_list, 
+                format_func=lambda x: opcoes[x],
+                index=current_idx
+            )
+            
+            if escolha != st.session_state.email:
+                st.session_state.email = escolha
+                st.session_state.nome = opcoes[escolha].split(' (')[0]
+                st.rerun()
+
 
 # ==========================================
 # ROTEAMENTO NATIVO (ST.NAVIGATION)
@@ -227,9 +277,23 @@ else:
     if not st.session_state.get('is_admin', False):
         st.session_state.email = st.session_state.get('email_autenticado', st.session_state.email)
 
+    # =========================================================
+    # INJEÇÃO DINÂMICA DE ALERTA: MODO ADMIN / PERSONIFICAÇÃO
+    # =========================================================
+    if st.session_state.get('is_admin', False) and st.session_state.email != st.session_state.get('admin_email', ''):
+        # Apenas muda a cor e a borda. Sem truques de altura ou teleporte!
+        st.markdown("""
+            <style>
+                [data-testid="stSidebar"] {
+                    background-color: #3b0a0a !important;
+                    border-right: 2px solid #ff4444 !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
     menu_usuario = [st.Page(perfil.render, title="Meu Perfil", icon="👤", url_path="perfil")]
     if st.session_state.get('is_admin', False):
-        menu_usuario.append(st.Page(painel_admin, title="Visualizar Como", icon="🛠️", url_path="admin"))
+        menu_usuario.append(st.Page(painel_admin, title="Painel Admin", icon="🛠️", url_path="admin"))
 
     pg = st.navigation({
         f"Usuário: {st.session_state.nome}": menu_usuario,
@@ -248,6 +312,17 @@ else:
     })
     
     pg.run()
+
+    # Aviso Renderizado Limpo e Estável (Exclusivo da Personificação)
+    if st.session_state.get('is_admin', False) and st.session_state.email != st.session_state.get('admin_email', ''):
+        st.sidebar.markdown(
+            f"""
+            <div style='background-color: #ff4444; color: white; padding: 0.8rem; border-radius: 5px; text-align: center; margin-bottom: 0.8rem;'>
+                ⚠️ <b>MODO ADMIN</b><br>Vendo como: <b>{st.session_state.nome}</b>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
 
     if st.sidebar.button("🚪 Sair do App", use_container_width=True):
         st.session_state.clear()
