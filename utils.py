@@ -683,7 +683,7 @@ def inserir_lote_registros(nome_aba, df):
         return False, f"Erro ao salvar no Google Sheets: {str(e)}"
 
 # ==========================================
-# 9. PAINEL DE ADMINISTRADOR
+# 9. PAINEL DE ADMINISTRADOR E GESTÃO DE ACESSOS
 # ==========================================
 def listar_todos_usuarios():
     """Busca a lista de todos os usuários cadastrados na planilha para o Painel Admin"""
@@ -698,11 +698,37 @@ def listar_todos_usuarios():
         for _, row in df_usuarios.iterrows():
             email = str(row.get('Email', '')).strip().lower()
             nome = str(row.get('Nome', 'Sem Nome')).strip()
+            status = str(row.get('Status', 'Pendente')).strip().capitalize()
             
             if email:
-                usuarios_lista.append({"email": email, "nome": nome})
+                usuarios_lista.append({"email": email, "nome": nome, "status": status})
                 
         return usuarios_lista
     except Exception as e:
         print(f"Erro ao listar usuários: {e}")
         return []
+
+def atualizar_status_usuario(email_alvo, novo_status):
+    """Atualiza o Status (Ativo, Pendente, Revogado) de um usuário no Google Sheets"""
+    try:
+        sheet = conectar_planilha("Usuarios")
+        valores = sheet.get_all_values()
+        if not valores: return False, "A aba Usuarios está vazia."
+        
+        cabecalho = [str(c).strip().lower() for c in valores[0]]
+        if 'email' not in cabecalho or 'status' not in cabecalho:
+            return False, "Colunas 'Email' ou 'Status' não encontradas."
+            
+        idx_email = cabecalho.index('email')
+        idx_status = cabecalho.index('status')
+        email_lower = email_alvo.strip().lower()
+        
+        for i, linha in enumerate(valores[1:], start=2):
+            if len(linha) > idx_email and str(linha[idx_email]).strip().lower() == email_lower:
+                sheet.update_cell(i, idx_status + 1, novo_status)
+                st.cache_data.clear() # Limpa o cache para a mudança refletir instantaneamente
+                return True, "✅ Status atualizado com sucesso!"
+                
+        return False, "Usuário não encontrado."
+    except Exception as e:
+        return False, f"Erro ao atualizar status: {e}"
