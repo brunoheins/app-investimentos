@@ -1,7 +1,12 @@
 import streamlit as st
 import pandas as pd
 import time
-from utils import ler_planilha, registrar_novo_usuario, db
+from utils import (
+    ler_planilha, 
+    registrar_novo_usuario, 
+    listar_todos_usuarios, 
+    atualizar_status_usuario
+)
 
 # A configuração da página DEVE ser a primeira linha do app
 st.set_page_config(page_title="App Investimentos v2.0", layout="wide", initial_sidebar_state="expanded")
@@ -77,27 +82,40 @@ def tela_acesso():
                         email_formatado = email_input.strip().lower()
                         senha_formatada = senha_input.strip()
                         
-                        usuario = db.usuarios.find_one({"_id": email_formatado, "senha": senha_formatada})
-                        
-                        if usuario:
-                            status_usuario = str(usuario.get('status', 'Pendente')).strip().capitalize()
-                            if status_usuario == 'Ativo':
-                                st.session_state.logado = True
-                                st.session_state.email = email_formatado
-                                st.session_state.nome = usuario.get('nome', 'Usuário')
-                                
-                                st.session_state.email_autenticado = email_formatado
-                                st.session_state.is_admin = usuario.get('admin', False)
-                                st.session_state.admin_email = email_formatado if st.session_state.is_admin else ""
-                                
-                                st.cache_data.clear() 
-                                st.rerun()
-                            elif status_usuario == 'Pendente':
-                                st.warning("⏳ Seu cadastro está em análise pelo administrador.")
+                        df_usuarios = ler_planilha("Usuarios")
+                        if not df_usuarios.empty:
+                            df_usuarios['Email'] = df_usuarios['Email'].astype(str).str.strip().str.lower()
+                            df_usuarios['Senha'] = df_usuarios['Senha'].astype(str).str.strip()
+                            
+                            usuario = df_usuarios[(df_usuarios['Email'] == email_formatado) & (df_usuarios['Senha'] == senha_formatada)]
+                            
+                            if not usuario.empty:
+                                status_usuario = str(usuario.iloc[0].get('Status', 'Pendente')).strip().capitalize()
+                                if status_usuario == 'Ativo':
+                                    st.session_state.logado = True
+                                    st.session_state.email = email_formatado
+                                    st.session_state.nome = usuario.iloc[0].get('Nome', 'Usuário')
+                                    
+                                    st.session_state.email_autenticado = email_formatado
+                                    
+                                    admin_val = usuario.iloc[0].get('Admin', 'FALSE')
+                                    if str(admin_val).strip().upper() == 'TRUE':
+                                        st.session_state.is_admin = True
+                                    else:
+                                        st.session_state.is_admin = False
+                                        
+                                    st.session_state.admin_email = email_formatado if st.session_state.is_admin else ""
+                                    
+                                    st.cache_data.clear() 
+                                    st.rerun()
+                                elif status_usuario == 'Pendente':
+                                    st.warning("⏳ Seu cadastro está em análise pelo administrador.")
+                                else:
+                                    st.error("❌ Seu acesso foi revogado.")
                             else:
-                                st.error("❌ Seu acesso foi revogado.")
+                                st.error("❌ Usuário ou senha incorretos.")
                         else:
-                            st.error("❌ Usuário ou senha incorretos.")
+                            st.error("Erro ao acessar base de dados.")
 
         with tab_cadastro:
             with st.form("form_cadastro", clear_on_submit=True):
@@ -173,7 +191,7 @@ def tela_acesso():
                             else: st.error(msg)
 
 # ==========================================
-# FUNÇÃO DA TELA DE PAINEL ADMIN
+# FUNÇÃO DA TELA DE PAINEL ADMIN (COMPLETA)
 # ==========================================
 def painel_admin():
     st.title("🛠️ Painel do Administrador")
@@ -182,13 +200,12 @@ def painel_admin():
     
     with tab_gestao:
         st.markdown("Pesquise e gerencie a liberação ou revogação de acessos ao sistema.")
-        usuarios = list(db.usuarios.find({}, {"_id": 1, "nome": 1, "status": 1}))
+        usuarios = listar_todos_usuarios()
         
         if usuarios:
             df_users = pd.DataFrame(usuarios)
-            df_users.rename(columns={"_id": "Email", "nome": "Nome", "status": "Status"}, inplace=True)
+            df_users.rename(columns={"email": "Email", "nome": "Nome", "status": "Status"}, inplace=True)
             
-            # --- BLINDAGEM DO ERRO (NORMALIZAÇÃO DE TEXTO) ---
             if 'Status' not in df_users.columns:
                 df_users['Status'] = 'Pendente'
             
@@ -233,10 +250,13 @@ def painel_admin():
                         )
                         
                         if novo_status != row['Status']:
-                            db.usuarios.update_one({"_id": row['Email']}, {"$set": {"status": novo_status}})
-                            st.toast(f"Status de {row['Nome']} alterado para {novo_status}!", icon="✅")
-                            time.sleep(1) 
-                            st.rerun()
+                            sucesso_status, msg_status = atualizar_status_usuario(row['Email'], novo_status)
+                            if sucesso_status:
+                                st.toast(f"Status de {row['Nome']} alterado para {novo_status}!", icon="✅")
+                                time.sleep(1) 
+                                st.rerun()
+                            else:
+                                st.error(f"Erro ao alterar status: {msg_status}")
                             
                     st.markdown("<hr style='margin: 0.5em 0; border: 0; border-top: 1px dashed #444;'>", unsafe_allow_html=True)
                     
@@ -244,7 +264,6 @@ def painel_admin():
         st.markdown("Selecione um usuário abaixo para visualizar o sistema como se fosse ele. Suas permissões de alteração continuarão bloqueadas.")
         st.info("💡 **Dica:** Clique na caixa e **comece a digitar** o nome ou e-mail.")
         
-        from utils import listar_todos_usuarios
         lista_users = listar_todos_usuarios()
         
         if lista_users:
@@ -281,7 +300,6 @@ else:
     # INJEÇÃO DINÂMICA DE ALERTA: MODO ADMIN / PERSONIFICAÇÃO
     # =========================================================
     if st.session_state.get('is_admin', False) and st.session_state.email != st.session_state.get('admin_email', ''):
-        # Apenas muda a cor e a borda. Sem truques de altura ou teleporte!
         st.markdown("""
             <style>
                 [data-testid="stSidebar"] {
